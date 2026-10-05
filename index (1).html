@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trondial Ventas</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0e5691">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Cpath d='M18 20h28v7H35.5v19h-7V27H18z' fill='white'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
+    colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+    boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
+  } } };
+</script>
+<style>
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  .field{ width:100%; border:1px solid #e2e8f0; border-radius:.6rem; padding:.55rem .75rem; font-size:.9rem; background:#fff; }
+  .field:focus{ outline:none; border-color:#1487d8; box-shadow:0 0 0 3px #dcf0ff; }
+  .lbl{ display:block; font-size:.75rem; font-weight:600; color:#64748b; margin-bottom:.3rem; }
+  .num{ font-variant-numeric: tabular-nums; }
+  .chip{ white-space:nowrap; }
+  .foto{ background:#f1f5f9; object-fit:contain; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+
+<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-2.5">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-brand-700 flex items-center justify-center text-white shadow-sm shrink-0"><i data-lucide="tag" class="w-5 h-5"></i></div>
+      <div>
+        <div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">VENTAS</span></div>
+        <div class="text-[11px] text-slate-400 leading-tight">Catálogo y precios</div>
+      </div>
+    </div>
+    <div id="sessionBar" class="flex items-center gap-3"></div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
+<div id="modalRoot"></div>
+
+<script>
+/* ===================== CONFIGURACIÓN ===================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyAA1nEPhtZ5s8TD3wATBOvI5vW0lFEu3KU",
+  authDomain: "trondial-portal.firebaseapp.com",
+  projectId: "trondial-portal",
+  storageBucket: "trondial-portal.firebasestorage.app",
+  messagingSenderId: "116037416042",
+  appId: "1:116037416042:web:efd4862444a1c41ea2c613"
+};
+const LISTAS = [
+  { k:'dist', nombre:'Distribuidor', corto:'Dist.', lista:'Lista 1' },
+  { k:'may',  nombre:'Mayorista',    corto:'May.',  lista:'Lista 4' },
+  { k:'com',  nombre:'Comercio',     corto:'Com.',  lista:'Lista 6' },
+];
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs:true }).catch(()=>{});
+const FV = firebase.firestore.FieldValue;
+
+/* ===================== ESTADO ===================== */
+let perfil = null, nivel = '', sinAcceso = false, cargando = true;
+let lineas = [], productos = [], margenes = {}, costos = {}, pendientes = [];
+let tab = (location.hash||'#catalogo').slice(1) || 'catalogo';
+let filtro = { linea:'', q:'', solo:'' };
+let unsubs = [];
+let importacion = null;   // resultado del análisis de los Excel
+const fotosCache = {};    // codigo -> dataURL | null
+
+/* ===================== UTILIDADES ===================== */
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function iconos(){ if(window.lucide) lucide.createIcons(); }
+function money(n){ return (n==null || isNaN(n)) ? '—' : '$\u00a0' + Number(n).toLocaleString('es-UY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function r2(n){ return Math.round((Number(n)+Number.EPSILON)*100)/100; }
+function r4(n){ return Math.round((Number(n)+Number.EPSILON)*10000)/10000; }
+function pct(n){ return (n==null||isNaN(n)) ? '—' : (Number(n)*100).toLocaleString('es-UY',{maximumFractionDigits:2}) + '%'; }
+function parseNum(v){ if(v==null) return null; const s=String(v).trim().replace(/\s/g,''); if(!s) return null;
+  const n = Number(s.includes(',') ? s.replace(/\./g,'').replace(',','.') : s); return isNaN(n) ? null : n; }
+function slug(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'linea'; }
+function lineaNombre(id){ const l = lineas.find(x=>x.id===id); return l ? l.nombre : (id||'Sin línea'); }
+function toast(msg, tipo){
+  const colores = { ok:'bg-emerald-600', err:'bg-rose-600', info:'bg-slate-800' };
+  const el = document.createElement('div');
+  el.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[92vw] ' + (colores[tipo||'ok']);
+  el.textContent = msg; document.body.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 3400);
+}
+function modal(titulo, cuerpo, ancho){
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this) cerrarModal()">
+      <div class="bg-white w-full ${ancho||'sm:max-w-lg'} rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[94vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 sticky top-0 bg-white z-10">
+          <h3 class="font-bold text-lg text-slate-900">${titulo}</h3>
+          <button onclick="cerrarModal()" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="p-5">${cuerpo}</div>
+      </div>
+    </div>`;
+  iconos();
+}
+function cerrarModal(){ $('modalRoot').innerHTML=''; }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
+const esAdmin = () => nivel === 'admin';
+
+/* ===================== PRECIOS ===================== */
+// Cada precio de lista sale del costo con el % de su línea: precio = costo × (1 + %).
+function calcularPrecios(costo, m){
+  if(costo==null || !m) return null;
+  return { dist: r2(costo*(1+(m.dist||0))), may: r2(costo*(1+(m.may||0))), com: r2(costo*(1+(m.com||0))) };
+}
+function margenesLinea(lineaId){ const m = margenes[lineaId]; return (m && m.dist!=null && m.may!=null && m.com!=null) ? m : null; }
+function preciosIguales(a,b){ return a && b && LISTAS.every(l=> r2(a[l.k]) === r2(b[l.k])); }
+
+// Guarda un cambio de precios: producto + historial + pendiente de cargar en el sistema.
+function agregarCambioAlLote(batch, p, nuevos, motivo, extraProducto){
+  const ref = db.collection('productos').doc(p.id);
+  const antes = p.precios || null;
+  batch.set(ref, Object.assign({ precios: nuevos, actualizado: FV.serverTimestamp() }, extraProducto||{}), { merge:true });
+  batch.set(db.collection('historialPrecios').doc(), { codigo:p.id, nombre:p.nombre, antes, despues:nuevos, motivo, por: perfil.nombre||'', fecha: FV.serverTimestamp() });
+  const pend = pendientes.find(x=>x.id===p.id);
+  batch.set(db.collection('pendientesSistema').doc(p.id), {
+    codigo:p.id, nombre:p.nombre, lineaId:p.lineaId||'',
+    antes: pend ? pend.antes : antes,      // lo que está hoy en el sistema de facturación
+    despues: nuevos, motivo, nuevo: pend ? !!pend.nuevo : !antes, creado: pend ? pend.creado : FV.serverTimestamp(), actualizado: FV.serverTimestamp()
+  });
+}
+async function commitEnLotes(operaciones){
+  // operaciones: array de funciones (batch)=>void ; se agrupan de a 120 para no pasar el límite de 500 escrituras
+  for(let i=0;i<operaciones.length;i+=120){
+    const b = db.batch(); operaciones.slice(i,i+120).forEach(fn=>fn(b)); await b.commit();
+  }
+}
+
+/* ===================== INGRESO Y DATOS ===================== */
+firebase.auth().onAuthStateChanged(user=>{
+  if(!user || !user.emailVerified){ location.href='../'; return; }
+  db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
+    perfil = doc.exists ? doc.data() : null;
+    const n = (perfil && perfil.activo) ? (perfil.dueno ? 'admin' : ((perfil.permisos||{}).ventas||'')) : '';
+    if(n!=='admin' && n!=='vendedor'){ detener(); nivel=''; sinAcceso=true; render(); return; }
+    if(n!==nivel){ nivel=n; sinAcceso=false; detener(); escuchar(); }
+    render();
+  }, ()=>{ detener(); sinAcceso=true; render(); });
+});
+function detener(){ unsubs.forEach(f=>{ try{f();}catch(e){} }); unsubs=[]; }
+function escuchar(){
+  cargando = true;
+  const on = (q, fn) => unsubs.push(q.onSnapshot(fn, e=>console.error(e)));
+  on(db.collection('lineas'), s=>{ lineas = s.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.orden??999)-(b.orden??999) || a.nombre.localeCompare(b.nombre,'es')); render(); });
+  on(db.collection('productos'), s=>{ productos = s.docs.map(d=>({id:d.id, ...d.data()})); cargando=false; render(); });
+  if(esAdmin()){
+    on(db.collection('margenes'), s=>{ margenes = {}; s.docs.forEach(d=> margenes[d.id]=d.data()); render(); });
+    on(db.collection('costos'), s=>{ costos = {}; s.docs.forEach(d=> costos[d.id]=d.data()); render(); });
+    on(db.collection('pendientesSistema'), s=>{ pendientes = s.docs.map(d=>({id:d.id, ...d.data()})); render(); });
+  }
+}
+function salir(){ detener(); firebase.auth().signOut().finally(()=>location.href='../'); }
+function irTab(t){ tab=t; history.replaceState(null,'','#'+t); render(); window.scrollTo(0,0); }
+
+/* ===================== RENDER ===================== */
+function render(){
+  renderBarra();
+  const r = $('root');
+  if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
+  if(!nivel){ r.innerHTML = '<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
+  if(!esAdmin() && tab!=='catalogo') tab='catalogo';
+  // Mantiene el foco y el cursor del buscador al re-dibujar
+  const foco = document.activeElement && document.activeElement.id; const sel = foco==='buscar' ? $('buscar').selectionStart : null;
+  r.innerHTML = vTabs() + (tab==='lineas'?vLineas(): tab==='pendientes'?vPendientes(): tab==='importar'?vImportar(): vCatalogo());
+  if(foco==='buscar' && $('buscar')){ $('buscar').focus(); try{ $('buscar').setSelectionRange(sel,sel);}catch(e){} }
+  iconos(); cargarFotosVisibles();
+}
+function renderBarra(){
+  const el = $('sessionBar');
+  const portal = `<a href="../" class="text-xs font-semibold text-slate-500 hover:text-brand-700 flex items-center gap-1"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Portal</a>`;
+  if(!perfil){ el.innerHTML = portal; return; }
+  el.innerHTML = `<span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full"><i data-lucide="${esAdmin()?'shield-check':'user'}" class="w-3.5 h-3.5"></i>${esc(perfil.nombre)}</span>${portal}
+    <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">Cerrar sesión</span></button>`;
+}
+function vSinAcceso(){
+  return `<div class="max-w-md mx-auto py-14"><div class="bg-white border border-slate-200 shadow-soft rounded-2xl p-8 text-center">
+    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4"><i data-lucide="lock" class="w-6 h-6"></i></div>
+    <h1 class="text-xl font-extrabold text-slate-900">Sin acceso a Ventas</h1>
+    <p class="text-sm text-slate-500 mt-2">Tu usuario no tiene permiso en este módulo, o está desactivado.</p>
+    <a href="../" class="inline-block mt-6 bg-brand-700 hover:bg-brand-800 text-white font-semibold px-5 py-2.5 rounded-lg">Volver al portal</a></div></div>`;
+}
+function vTabs(){
+  if(!esAdmin()) return '';
+  const t = (id, txt, icon, badge) => `<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-slate-900':'bg-rose-600 text-white'}">${badge}</span>`:''}</button>`;
+  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('lineas','Líneas y márgenes','percent')}${t('pendientes','Cargar en el sistema','clipboard-check', pendientes.length)}${t('importar','Importar listas','file-spreadsheet')}</nav>`;
+}
+
+/* ---------- CATÁLOGO ---------- */
+function productosFiltrados(){
+  const q = filtro.q.trim().toLowerCase();
+  return productos.filter(p=>{
+    if(!esAdmin() && p.activo===false) return false;
+    if(filtro.linea && p.lineaId!==filtro.linea) return false;
+    if(filtro.solo==='nuevos' && !p.nuevo) return false;
+    if(filtro.solo==='manual' && p.modo==='calculado') return false;
+    if(filtro.solo==='sinfoto' && p.fotoV) return false;
+    if(filtro.solo==='inactivos' && p.activo!==false) return false;
+    if(q && !((p.nombre||'')+' '+p.id+' '+(p.barras||'')).toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b)=> (lineas.findIndex(l=>l.id===a.lineaId) - lineas.findIndex(l=>l.id===b.lineaId)) || (a.seccion||'').localeCompare(b.seccion||'','es') || (a.nombre||'').localeCompare(b.nombre||'','es'));
+}
+function vCatalogo(){
+  if(cargando) return '<div class="py-24 text-center text-slate-400 text-sm">Cargando catálogo…</div>';
+  if(!productos.length){
+    return `<div class="bg-white border border-slate-200 rounded-2xl p-10 text-center">
+      <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mx-auto mb-4"><i data-lucide="package" class="w-6 h-6"></i></div>
+      <h2 class="text-xl font-extrabold text-slate-900">Todavía no hay productos</h2>
+      <p class="text-sm text-slate-500 mt-2 max-w-md mx-auto">${esAdmin()?'Importá tus tres listas de precios desde Excel y el catálogo queda armado en un minuto.':'El administrador todavía no cargó el catálogo.'}</p>
+      ${esAdmin()?`<button onclick="irTab('importar')" class="mt-5 bg-brand-700 hover:bg-brand-800 text-white font-semibold px-5 py-2.5 rounded-xl">Importar listas</button>`:''}</div>`;
+  }
+  const lista = productosFiltrados();
+  const chips = [`<button onclick="filtro.linea='';render()" class="chip px-3 py-1.5 rounded-full text-sm font-semibold ${!filtro.linea?'bg-slate-900 text-white':'bg-white border border-slate-200 text-slate-600'}">Todas</button>`]
+    .concat(lineas.map(l=>`<button onclick="filtro.linea='${l.id}';render()" class="chip px-3 py-1.5 rounded-full text-sm font-semibold ${filtro.linea===l.id?'bg-slate-900 text-white':'bg-white border border-slate-200 text-slate-600'}">${esc(l.nombre)}</button>`)).join('');
+  const nuevos = productos.filter(p=>p.nuevo && p.activo!==false).length;
+  const extra = esAdmin()
+    ? `<select class="field !w-auto" onchange="filtro.solo=this.value;render()">
+        ${[['','Todos'],['nuevos','Marcados como nuevos'],['manual','Con precio manual'],['sinfoto','Sin foto'],['inactivos','Discontinuados']].map(([v,t])=>`<option value="${v}" ${filtro.solo===v?'selected':''}>${t}</option>`).join('')}</select>
+       <button onclick="abrirProducto(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2 whitespace-nowrap"><i data-lucide="plus" class="w-4 h-4"></i>Producto</button>`
+    : (nuevos ? `<button onclick="filtro.solo=filtro.solo==='nuevos'?'':'nuevos';render()" class="px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap ${filtro.solo==='nuevos'?'bg-amber-500 text-white':'bg-amber-50 text-amber-800'}">Nuevos (${nuevos})</button>` : '');
+  let html = `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Catálogo</h1>
+        <p class="text-slate-500 text-sm mt-1">${productos.filter(p=>p.activo!==false).length} productos · precios con IVA incluido</p></div>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-3">
+      <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="buscar" class="field !pl-9" placeholder="Buscar por nombre, código o código de barras" value="${esc(filtro.q)}" oninput="filtro.q=this.value;render()"></div>
+      ${extra}
+    </div>
+    <div class="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1">${chips}</div>`;
+  if(!lista.length) return html + '<div class="text-center text-slate-400 py-16 text-sm">No hay productos con ese filtro.</div>';
+  let actual = null;
+  html += '<div class="space-y-2">';
+  lista.forEach(p=>{
+    if(p.lineaId!==actual){ actual=p.lineaId; html += `<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide pt-4 pb-1">${esc(lineaNombre(p.lineaId))}</h2>`; }
+    html += tarjetaProducto(p);
+  });
+  return html + '</div>';
+}
+function tarjetaProducto(p){
+  const pr = p.precios || {};
+  const badges = [
+    p.nuevo ? '<span class="text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">Nuevo</span>' : '',
+    p.activo===false ? '<span class="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Discontinuado</span>' : '',
+    esAdmin() ? (p.modo==='calculado' ? '<span class="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Calculado</span>' : '<span class="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Manual</span>') : '',
+    esAdmin() && pendientes.some(x=>x.id===p.id) ? '<span class="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">Falta cargar en sistema</span>' : '',
+  ].join(' ');
+  return `
+  <div class="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 ${p.activo===false?'opacity-60':''}">
+   <div class="flex gap-3 sm:gap-4 items-start">
+    <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center" data-foto="${esc(p.id)}" data-v="${p.fotoV||''}">
+      ${p.fotoV ? (fotosCache[p.id] ? `<img src="${fotosCache[p.id]}" class="w-full h-full foto" alt="">` : '<div class="w-5 h-5 rounded-full border-2 border-slate-300 border-t-transparent animate-spin"></div>') : '<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>'}
+    </div>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="font-semibold text-slate-900 leading-snug">${esc(p.nombre)}</div>
+          <div class="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2">
+            <button onclick="copiarCodigo('${esc(p.id)}')" class="font-semibold text-slate-500 hover:text-brand-700 inline-flex items-center gap-1" title="Copiar código">Cód. ${esc(p.id)}<i data-lucide="copy" class="w-3 h-3"></i></button>
+            ${p.master?`<span>Bulto x${p.master}</span>`:''}${p.seccion?`<span>${esc(p.seccion)}</span>`:''}
+          </div>
+        </div>
+        <div class="flex gap-1 shrink-0">
+          <button onclick="compartir('${esc(p.id)}')" class="p-2 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Compartir"><i data-lucide="share-2" class="w-4 h-4"></i></button>
+          ${esAdmin()?`<button onclick="abrirProducto('${esc(p.id)}')" class="p-2 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>`:''}
+        </div>
+      </div>
+      ${badges.trim()?`<div class="flex flex-wrap gap-1 mt-1.5">${badges}</div>`:''}
+    </div>
+   </div>
+      <div class="grid grid-cols-3 gap-1.5 mt-3">
+        ${LISTAS.map(l=>`<div class="bg-slate-50 rounded-lg px-2 py-1.5 min-w-0"><div class="text-[10px] font-semibold text-slate-400 uppercase truncate"><span class="sm:hidden">${l.corto}</span><span class="hidden sm:inline">${l.nombre}</span></div><div class="num font-bold text-slate-900 text-sm sm:text-base whitespace-nowrap">${money(pr[l.k])}</div></div>`).join('')}
+      </div>
+      ${p.publico!=null?`<div class="text-xs text-slate-500 mt-1.5">Precio público sugerido: <b class="num">${money(p.publico)}</b></div>`:''}
+  </div>`;
+}
+function copiarCodigo(c){ (navigator.clipboard?navigator.clipboard.writeText(c):Promise.reject()).then(()=>toast('Código '+c+' copiado.')).catch(()=>toast('Código: '+c,'info')); }
+
+// Fotos: se piden de a una solo cuando la tarjeta aparece en pantalla.
+let observador = null;
+function cargarFotosVisibles(){
+  if(observador) observador.disconnect();
+  observador = new IntersectionObserver(entradas=>{
+    entradas.forEach(en=>{
+      if(!en.isIntersecting) return;
+      const el = en.target; observador.unobserve(el);
+      const id = el.dataset.foto; if(!el.dataset.v || fotosCache[id]!==undefined) return;
+      db.collection('fotos').doc(id).get().then(d=>{
+        fotosCache[id] = d.exists ? d.data().data : null;
+        if(fotosCache[id]) el.innerHTML = `<img src="${fotosCache[id]}" class="w-full h-full foto" alt="">`;
+        else el.innerHTML = '<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>', iconos();
+      }).catch(()=>{});
+    });
+  }, { rootMargin:'300px' });
+  document.querySelectorAll('[data-foto]').forEach(el=>{ if(el.dataset.v && fotosCache[el.dataset.foto]===undefined) observador.observe(el); });
+}
+
+/* ---------- COMPARTIR (vendedor y admin) ---------- */
+function compartir(id){
+  const p = productos.find(x=>x.id===id); if(!p) return;
+  modal('Compartir con un cliente', `
+    <p class="text-sm text-slate-600 mb-4"><b>${esc(p.nombre)}</b><br>Elegí el tipo de cliente: el mensaje lleva <b>solo ese precio</b>.</p>
+    <div class="grid gap-2">
+      ${LISTAS.map(l=>`<button onclick="enviarFicha('${esc(id)}','${l.k}')" class="w-full text-left border border-slate-200 hover:border-emerald-400 rounded-xl px-4 py-3 flex justify-between items-center">
+        <span class="font-semibold">${l.nombre}</span><span class="num font-bold">${money((p.precios||{})[l.k])}</span></button>`).join('')}
+    </div>
+    <p class="text-xs text-slate-400 mt-4">${p.fotoV?'Si tu celular lo permite, se comparte con la foto.':'Este producto todavía no tiene foto.'}</p>`);
+}
+async function enviarFicha(id, k){
+  const p = productos.find(x=>x.id===id); if(!p) return;
+  const l = LISTAS.find(x=>x.k===k);
+  const texto = `*${p.nombre}*\nCódigo: ${p.id}${p.master?`\nBulto: x${p.master}`:''}\nPrecio: *${money((p.precios||{})[k])}* (IVA incluido)${p.publico!=null && k==='com'?`\nPúblico sugerido: ${money(p.publico)}`:''}`;
+  cerrarModal();
+  try{
+    let foto = p.fotoV ? fotosCache[id] : null;
+    if(p.fotoV && foto===undefined){ const d = await db.collection('fotos').doc(id).get(); foto = d.exists ? d.data().data : null; fotosCache[id]=foto; }
+    if(foto && navigator.canShare){
+      const blob = await (await fetch(foto)).blob();
+      const archivo = new File([blob], `${p.id}.jpg`, { type:'image/jpeg' });
+      if(navigator.canShare({ files:[archivo] })){ await navigator.share({ files:[archivo], text:texto }); return; }
+    }
+    if(navigator.share){ await navigator.share({ text:texto }); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  window.open('https://wa.me/?text='+encodeURIComponent(texto), '_blank');
+}
+
+/* ---------- EDITAR PRODUCTO (admin) ---------- */
+let fotoNueva = undefined; // undefined = sin cambios · null = quitar · string = nueva foto
+function abrirProducto(id){
+  const p = id ? productos.find(x=>x.id===id) : null;
+  fotoNueva = undefined;
+  const lin = p ? p.lineaId : (filtro.linea || (lineas[0]&&lineas[0].id) || '');
+  const costo = p && costos[p.id] ? costos[p.id].costo : null;
+  const modo = p ? (p.modo||'manual') : (margenesLinea(lin) ? 'calculado' : 'manual');
+  const pr = (p && p.precios) || {};
+  modal(p ? 'Editar producto' : 'Nuevo producto', `
+    <form onsubmit="guardarProducto(event, ${p?`'${esc(p.id)}'`:'null'})" class="space-y-4" novalidate>
+      <div class="flex gap-4 items-start">
+        <div id="fotoPrev" class="w-24 h-24 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center shrink-0">
+          ${p && p.fotoV && fotosCache[p.id] ? `<img src="${fotosCache[p.id]}" class="w-full h-full foto">` : '<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>'}</div>
+        <div class="space-y-2">
+          <label class="inline-flex items-center gap-2 border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold cursor-pointer hover:border-brand-400">
+            <i data-lucide="camera" class="w-4 h-4"></i>${p&&p.fotoV?'Cambiar foto':'Subir o sacar foto'}
+            <input type="file" accept="image/*" class="hidden" onchange="elegirFoto(this)"></label>
+          ${p&&p.fotoV?`<button type="button" onclick="quitarFoto()" class="block text-xs text-slate-400 hover:text-rose-600 font-semibold">Quitar foto</button>`:''}
+          <div id="fotoInfo" class="text-xs text-slate-400">Se comprime sola antes de guardarse.</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="lbl" for="pCod">Código</label><input class="field" id="pCod" value="${esc(p?p.id:'')}" ${p?'disabled':''} placeholder="Igual que en el sistema"></div>
+        <div class="col-span-2"><label class="lbl" for="pLinea">Línea</label><select class="field" id="pLinea" onchange="if(!$('pCod').disabled && margenesLinea(this.value)){ document.querySelector('input[name=pModo][value=calculado]').checked = true; } actualizarCalculo()">${lineas.map(l=>`<option value="${l.id}" ${l.id===lin?'selected':''}>${esc(l.nombre)}</option>`).join('')}</select></div>
+      </div>
+      <div><label class="lbl" for="pNombre">Nombre</label><input class="field" id="pNombre" value="${esc(p?p.nombre:'')}"></div>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="lbl" for="pMaster">Bulto (unid.)</label><input class="field num" id="pMaster" inputmode="numeric" value="${p&&p.master?p.master:''}"></div>
+        <div><label class="lbl" for="pPublico">Público sug.</label><input class="field num" id="pPublico" inputmode="decimal" value="${p&&p.publico!=null?p.publico:''}"></div>
+        <div><label class="lbl" for="pBarras">Cód. barras</label><input class="field num" id="pBarras" inputmode="numeric" value="${esc(p&&p.barras||'')}"></div>
+      </div>
+      <div><label class="lbl" for="pSeccion">Sección <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="pSeccion" value="${esc(p&&p.seccion||'')}"></div>
+
+      <div class="border border-slate-200 rounded-2xl p-4">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <span class="font-semibold text-sm">Precios <span class="font-normal text-slate-400">(IVA incluido)</span></span>
+          <div class="inline-flex bg-slate-100 rounded-lg p-0.5 text-xs font-semibold">
+            <label class="cursor-pointer"><input type="radio" name="pModo" value="calculado" class="peer hidden" ${modo==='calculado'?'checked':''} onchange="actualizarCalculo()"><span class="block px-2.5 py-1.5 rounded-md peer-checked:bg-white peer-checked:shadow">Desde el costo</span></label>
+            <label class="cursor-pointer"><input type="radio" name="pModo" value="manual" class="peer hidden" ${modo!=='calculado'?'checked':''} onchange="actualizarCalculo()"><span class="block px-2.5 py-1.5 rounded-md peer-checked:bg-white peer-checked:shadow">Manual</span></label>
+          </div>
+        </div>
+        <div id="bloqueCosto" class="mb-3"><label class="lbl" for="pCosto">Costo</label><input class="field num" id="pCosto" inputmode="decimal" value="${costo!=null?costo:''}" oninput="actualizarCalculo()"><div id="margenInfo" class="text-xs text-slate-400 mt-1"></div></div>
+        <div class="grid grid-cols-3 gap-2">
+          ${LISTAS.map(l=>`<div><label class="lbl" for="pr_${l.k}">${l.nombre}</label><input class="field num" id="pr_${l.k}" inputmode="decimal" value="${pr[l.k]!=null?pr[l.k]:''}"></div>`).join('')}
+        </div>
+      </div>
+      <div class="grid sm:grid-cols-2 gap-2">
+        <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer"><input type="checkbox" id="pNuevo" class="mt-1" ${p&&p.nuevo?'checked':''}>
+          <span><span class="font-semibold text-sm">Marcar como nuevo</span><span class="block text-xs text-slate-500">Los vendedores lo ven destacado.</span></span></label>
+        <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer"><input type="checkbox" id="pActivo" class="mt-1" ${!p||p.activo!==false?'checked':''}>
+          <span><span class="font-semibold text-sm">Activo</span><span class="block text-xs text-slate-500">Si lo desmarcás, deja de verse en el catálogo de los vendedores.</span></span></label>
+      </div>
+      <div id="pErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button id="pBtn" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Guardar</button>
+    </form>`, 'sm:max-w-xl');
+  actualizarCalculo();
+}
+function modoElegido(){ const r = document.querySelector('input[name="pModo"]:checked'); return r ? r.value : 'manual'; }
+function actualizarCalculo(){
+  const modo = modoElegido(), lin = $('pLinea').value, m = margenesLinea(lin);
+  $('bloqueCosto').classList.toggle('hidden', modo!=='calculado');
+  LISTAS.forEach(l=>{ $('pr_'+l.k).disabled = modo==='calculado'; $('pr_'+l.k).classList.toggle('bg-slate-50', modo==='calculado'); });
+  if(modo!=='calculado') return;
+  if(!m){ $('margenInfo').innerHTML = `<span class="text-amber-700">Esta línea todavía no tiene márgenes cargados. Cargalos en "Líneas y márgenes" o usá precio manual.</span>`; return; }
+  $('margenInfo').textContent = `Márgenes de ${lineaNombre(lin)}: Dist. ${pct(m.dist)} · May. ${pct(m.may)} · Com. ${pct(m.com)}`;
+  const c = parseNum($('pCosto').value), pr = calcularPrecios(c, m);
+  LISTAS.forEach(l=>{ $('pr_'+l.k).value = pr ? pr[l.k].toFixed(2) : ''; });
+}
+async function elegirFoto(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  $('fotoInfo').textContent = 'Comprimiendo…';
+  try{
+    const data = await comprimirFoto(f);
+    fotoNueva = data;
+    $('fotoPrev').innerHTML = `<img src="${data}" class="w-full h-full foto">`;
+    $('fotoInfo').textContent = 'Foto lista (' + Math.round(data.length*0.75/1024) + ' KB). Se guarda al tocar Guardar.';
+  }catch(e){ console.error(e); $('fotoInfo').textContent = 'No se pudo leer la imagen.'; }
+}
+function quitarFoto(){ fotoNueva = null; $('fotoPrev').innerHTML = '<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>'; iconos(); $('fotoInfo').textContent='La foto se quita al guardar.'; }
+// Reduce la foto a 800 px y la comprime en JPEG hasta que pese menos de ~150 KB.
+function comprimirFoto(file){
+  return new Promise((ok, mal)=>{
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      let max = 800, calidad = 0.8, data = '';
+      for(let intento=0; intento<6; intento++){
+        const esc_ = Math.min(1, max/Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width*esc_); c.height = Math.round(img.height*esc_);
+        const ctx = c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+        data = c.toDataURL('image/jpeg', calidad);
+        if(data.length*0.75 < 150*1024) break;
+        calidad -= 0.12; if(calidad < 0.45){ calidad = 0.7; max = Math.round(max*0.8); }
+      }
+      ok(data);
+    };
+    img.onerror = mal; img.src = url;
+  });
+}
+async function guardarProducto(e, id){
+  e.preventDefault();
+  const p = id ? productos.find(x=>x.id===id) : null;
+  const codigo = id || $('pCod').value.trim();
+  const nombre = $('pNombre').value.trim(), lineaId = $('pLinea').value, modo = modoElegido();
+  const err = t => { $('pErr').textContent = t; };
+  if(!codigo) return err('Poné el código (el mismo que en el sistema de facturación).');
+  if(!id && productos.some(x=>x.id===codigo)) return err('Ya existe un producto con ese código.');
+  if(/[\/]/.test(codigo)) return err('El código no puede tener "/".');
+  if(!nombre) return err('Poné el nombre.');
+  if(!lineaId) return err('Elegí la línea (si no hay, importá las listas o creá una línea).');
+  let precios, costo = null;
+  if(modo==='calculado'){
+    const m = margenesLinea(lineaId); if(!m) return err('La línea no tiene márgenes cargados. Usá precio manual o cargá los márgenes.');
+    costo = parseNum($('pCosto').value); if(costo==null || costo<=0) return err('Poné el costo.');
+    precios = calcularPrecios(costo, m);
+  } else {
+    precios = {}; for(const l of LISTAS){ const v = parseNum($('pr_'+l.k).value); if(v==null || v<=0) return err('Completá el precio '+l.nombre+'.'); precios[l.k] = r2(v); }
+  }
+  const datos = {
+    codigo, nombre, lineaId, modo,
+    seccion: $('pSeccion').value.trim(),
+    master: parseInt($('pMaster').value,10) || null,
+    publico: parseNum($('pPublico').value),
+    barras: $('pBarras').value.trim() || null,
+    nuevo: $('pNuevo').checked, activo: $('pActivo').checked,
+  };
+  if(fotoNueva !== undefined) datos.fotoV = fotoNueva ? Date.now() : null;
+  if(!p) datos.creado = FV.serverTimestamp();
+  const btn = $('pBtn'); btn.disabled = true; btn.textContent = 'Guardando…';
+  try{
+    const b = db.batch();
+    const ref = db.collection('productos').doc(codigo);
+    const cambian = !p || !preciosIguales(p.precios, precios);
+    if(cambian) agregarCambioAlLote(b, p || { id:codigo, nombre, lineaId, precios:null }, precios, p ? 'Edición de producto' : 'Producto nuevo', datos);
+    else b.set(ref, Object.assign(datos, { actualizado: FV.serverTimestamp() }), { merge:true });
+    if(modo==='calculado') b.set(db.collection('costos').doc(codigo), { costo, actualizado: FV.serverTimestamp() });
+    if(fotoNueva) b.set(db.collection('fotos').doc(codigo), { data: fotoNueva, actualizado: FV.serverTimestamp() });
+    if(fotoNueva === null) b.delete(db.collection('fotos').doc(codigo));
+    await b.commit();
+    if(fotoNueva !== undefined) fotosCache[codigo] = fotoNueva || null;
+    cerrarModal(); toast(cambian && p ? 'Guardado. Quedó en "Cargar en el sistema".' : 'Producto guardado.');
+  }catch(e2){ console.error(e2); err('No se pudo guardar. Revisá la conexión.'); btn.disabled=false; btn.textContent='Guardar'; }
+}
+
+/* ---------- LÍNEAS Y MÁRGENES (admin) ---------- */
+function vLineas(){
+  const filas = lineas.map(l=>{
+    const ps = productos.filter(p=>p.lineaId===l.id);
+    const calc = ps.filter(p=>p.modo==='calculado').length;
+    const m = margenesLinea(l.id);
+    return `<div class="bg-white border border-slate-200 rounded-2xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0"><div class="font-bold text-slate-900 text-lg">${esc(l.nombre)}</div>
+          <div class="text-xs text-slate-400">${ps.length} productos · ${calc} calculados desde el costo · ${ps.length-calc} con precio manual</div></div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="abrirMargenes('${l.id}')" class="text-sm font-semibold border border-slate-300 hover:border-brand-400 rounded-lg px-3 py-1.5">Márgenes</button>
+          <button onclick="abrirAumento('${l.id}')" class="text-sm font-semibold bg-brand-700 hover:bg-brand-800 text-white rounded-lg px-3 py-1.5" ${ps.length?'':'disabled'}>Aumento / rebaja</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mt-3">
+        ${LISTAS.map(x=>`<div class="bg-slate-50 rounded-lg px-3 py-2"><div class="text-[10px] font-semibold text-slate-400 uppercase">${x.nombre}</div><div class="num font-bold">${m?pct(m[x.k]):'<span class="text-slate-300 font-semibold text-sm">Sin cargar</span>'}</div></div>`).join('')}
+      </div>
+      ${m && ps.length>calc ? `<button onclick="analizarCostos('${l.id}')" class="mt-3 text-sm font-semibold text-brand-700 hover:underline inline-flex items-center gap-1"><i data-lucide="wand-2" class="w-4 h-4"></i>Calcular costos desde los precios actuales (${ps.length-calc} productos)</button>`:''}
+    </div>`;
+  }).join('');
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Líneas y márgenes</h1>
+      <p class="text-slate-500 text-sm mt-1 max-w-2xl">Cada precio sale del costo: <b>precio = costo × (1 + % de la lista)</b>. Los márgenes son por línea y solo los ven los administradores.</p></div>
+      <button onclick="abrirNuevaLinea()" class="border border-slate-300 hover:border-brand-400 font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Línea</button>
+    </div>
+    <div class="grid gap-3">${filas || '<div class="text-sm text-slate-400">No hay líneas. Se crean solas al importar las listas.</div>'}</div>`;
+}
+function abrirNuevaLinea(){
+  modal('Nueva línea', `<form onsubmit="crearLinea(event)" class="space-y-4"><div><label class="lbl" for="lNombre">Nombre</label><input class="field" id="lNombre" placeholder="Ej.: ARCOR"></div>
+    <div id="lErr" class="text-sm text-rose-600"></div><button class="w-full bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Crear</button></form>`);
+}
+async function crearLinea(e){
+  e.preventDefault(); const n = $('lNombre').value.trim().toUpperCase(); if(!n){ $('lErr').textContent='Poné el nombre.'; return; }
+  const id = slug(n); if(lineas.some(l=>l.id===id)){ $('lErr').textContent='Ya existe esa línea.'; return; }
+  await db.collection('lineas').doc(id).set({ nombre:n, orden: lineas.length }); cerrarModal(); toast('Línea creada.');
+}
+function abrirMargenes(lineaId){
+  const m = margenes[lineaId] || {};
+  modal('Márgenes de ' + esc(lineaNombre(lineaId)), `
+    <form onsubmit="previsualizarMargenes(event,'${lineaId}')" class="space-y-4">
+      <p class="text-sm text-slate-600">Porcentaje sobre el costo para cada lista. Ej.: si el costo es $100 y el margen es 25%, el precio es $125.</p>
+      <div class="grid grid-cols-3 gap-3">
+        ${LISTAS.map(l=>`<div><label class="lbl" for="m_${l.k}">${l.nombre} (%)</label><input class="field num" id="m_${l.k}" inputmode="decimal" value="${m[l.k]!=null? r4(m[l.k]*100):''}"></div>`).join('')}
+      </div>
+      <div id="mErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Continuar</button>
+    </form>`);
+}
+function previsualizarMargenes(e, lineaId){
+  e.preventDefault();
+  const nuevo = {};
+  for(const l of LISTAS){ const v = parseNum($('m_'+l.k).value); if(v==null) { $('mErr').textContent='Completá los tres porcentajes.'; return; } nuevo[l.k] = r4(v/100); }
+  const afectados = productos.filter(p=>p.lineaId===lineaId && p.modo==='calculado' && costos[p.id]).map(p=>({ p, nuevos: calcularPrecios(costos[p.id].costo, nuevo) })).filter(x=>!preciosIguales(x.p.precios, x.nuevos));
+  if(!afectados.length){ guardarMargenes(lineaId, nuevo, []); return; }
+  mostrarRevision(`Nuevos márgenes de ${lineaNombre(lineaId)}`, afectados, ()=>guardarMargenes(lineaId, nuevo, afectados), 'Cambio de márgenes de la línea');
+}
+async function guardarMargenes(lineaId, nuevo, afectados, motivo){
+  try{
+    const ops = [ b=>b.set(db.collection('margenes').doc(lineaId), Object.assign({}, nuevo, { actualizado: FV.serverTimestamp() })) ];
+    afectados.forEach(x=> ops.push(b=>agregarCambioAlLote(b, x.p, x.nuevos, motivo||'Cambio de márgenes de la línea')));
+    await commitEnLotes(ops);
+    cerrarModal(); toast(afectados.length ? `Márgenes guardados. ${afectados.length} productos cambiaron de precio.` : 'Márgenes guardados.');
+  }catch(e){ console.error(e); toast('No se pudo guardar.','err'); }
+}
+// Pantalla de revisión antes/después: nada se aplica hasta confirmar.
+let revisionPendiente = null;
+function mostrarRevision(titulo, afectados, alConfirmar, nota){
+  revisionPendiente = alConfirmar;
+  const filas = afectados.slice(0,300).map(x=>`<tr class="border-t border-slate-100">
+      <td class="py-2 pr-2"><div class="font-medium text-slate-800 leading-tight">${esc(x.p.nombre)}</div><div class="text-[11px] text-slate-400">${esc(x.p.id)}</div></td>
+      ${LISTAS.map(l=>{ const a=(x.p.precios||{})[l.k], n=x.nuevos[l.k]; const s = a? (n-a)/a : 0;
+        return `<td class="py-2 px-1 text-right num whitespace-nowrap"><div class="text-[11px] text-slate-400 line-through">${money(a)}</div><div class="font-semibold">${money(n)}</div><div class="text-[10px] ${s>0?'text-rose-600':s<0?'text-emerald-600':'text-slate-400'}">${s>0?'+':''}${(s*100).toFixed(1)}%</div></td>`; }).join('')}
+    </tr>`).join('');
+  modal(titulo, `
+    <p class="text-sm text-slate-600 mb-3"><b>${afectados.length}</b> productos cambian de precio. Revisalos: recién al confirmar quedan vigentes y pasan a "Cargar en el sistema".</p>
+    <div class="overflow-x-auto max-h-[55vh] border border-slate-200 rounded-xl"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-slate-50"><tr class="text-left text-[11px] text-slate-500 uppercase"><th class="py-2 px-2">Producto</th>${LISTAS.map(l=>`<th class="py-2 px-1 text-right">${l.corto}</th>`).join('')}</tr></thead>
+      <tbody class="[&_td:first-child]:pl-2">${filas}</tbody></table></div>
+    <div class="grid grid-cols-2 gap-2 mt-4">
+      <button onclick="cerrarModal()" class="border border-slate-300 font-semibold py-2.5 rounded-xl">Cancelar</button>
+      <button id="btnConfirmar" onclick="confirmarRevision()" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Confirmar precios</button>
+    </div>`, 'sm:max-w-3xl');
+}
+async function confirmarRevision(){ const b=$('btnConfirmar'); if(b){ b.disabled=true; b.textContent='Aplicando…'; } if(revisionPendiente) await revisionPendiente(); revisionPendiente=null; }
+
+function abrirAumento(lineaId){
+  modal('Aumento o rebaja · ' + esc(lineaNombre(lineaId)), `
+    <form onsubmit="previsualizarAumento(event,'${lineaId}')" class="space-y-4">
+      <p class="text-sm text-slate-600">Por ejemplo, cuando el proveedor aumenta. Se aplica al <b>costo</b> de los productos calculados (y se recalculan sus precios) y directamente a los <b>precios</b> de los que son manuales.</p>
+      <div><label class="lbl" for="aPct">Porcentaje (usá negativo para rebaja, ej.: -5)</label><input class="field num" id="aPct" inputmode="decimal" placeholder="Ej.: 8"></div>
+      <div><label class="lbl" for="aMotivo">Motivo <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="aMotivo" placeholder="Ej.: Aumento proveedor octubre"></div>
+      <div id="aErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Ver cómo quedan los precios</button>
+    </form>`);
+}
+function previsualizarAumento(e, lineaId){
+  e.preventDefault();
+  const v = parseNum($('aPct').value); if(v==null || v===0){ $('aErr').textContent='Poné un porcentaje distinto de cero.'; return; }
+  const f = 1 + v/100, motivo = $('aMotivo').value.trim() || `${v>0?'Aumento':'Rebaja'} ${v}% línea ${lineaNombre(lineaId)}`;
+  const m = margenesLinea(lineaId);
+  const afectados = productos.filter(p=>p.lineaId===lineaId && p.activo!==false).map(p=>{
+    if(p.modo==='calculado' && costos[p.id] && m){ const c = r4(costos[p.id].costo*f); return { p, nuevos: calcularPrecios(c, m), costo:c }; }
+    const pr = p.precios||{}; return { p, nuevos: { dist:r2(pr.dist*f), may:r2(pr.may*f), com:r2(pr.com*f) } };
+  });
+  mostrarRevision(motivo, afectados, async ()=>{
+    try{
+      const ops = [];
+      afectados.forEach(x=>{
+        ops.push(b=>agregarCambioAlLote(b, x.p, x.nuevos, motivo));
+        if(x.costo!=null) ops.push(b=>b.set(db.collection('costos').doc(x.p.id), { costo:x.costo, actualizado: FV.serverTimestamp() }));
+      });
+      await commitEnLotes(ops); cerrarModal(); toast(`${afectados.length} precios actualizados. Quedaron en "Cargar en el sistema".`);
+    }catch(err){ console.error(err); toast('No se pudo aplicar.','err'); }
+  });
+}
+// Con los márgenes cargados, deduce el costo de cada producto manual a partir de su precio Distribuidor
+// y verifica que Mayorista y Comercio cierren con ese costo. Los que cierran pasan a "calculado".
+function analizarCostos(lineaId){
+  const m = margenesLinea(lineaId); if(!m) return;
+  const ps = productos.filter(p=>p.lineaId===lineaId && p.modo!=='calculado' && p.precios);
+  const cierran = [], noCierran = [];
+  ps.forEach(p=>{
+    const costo = r4(p.precios.dist/(1+m.dist));
+    const calc = calcularPrecios(costo, m);
+    const ok = LISTAS.every(l=> Math.abs(calc[l.k]-p.precios[l.k]) <= Math.max(0.02, p.precios[l.k]*0.002));
+    (ok ? cierran : noCierran).push({ p, costo, calc });
+  });
+  modal('Calcular costos · ' + esc(lineaNombre(lineaId)), `
+    <p class="text-sm text-slate-600">Con los márgenes de la línea, deduje el costo de cada producto desde su precio Distribuidor y revisé que los otros dos precios coincidan.</p>
+    <div class="grid grid-cols-2 gap-2 my-4">
+      <div class="bg-emerald-50 rounded-xl p-3"><div class="text-2xl font-extrabold text-emerald-700 num">${cierran.length}</div><div class="text-xs text-emerald-800">cierran: pasan a calculado (los precios no cambian)</div></div>
+      <div class="bg-amber-50 rounded-xl p-3"><div class="text-2xl font-extrabold text-amber-700 num">${noCierran.length}</div><div class="text-xs text-amber-800">no cierran: quedan con precio manual</div></div>
+    </div>
+    ${noCierran.length?`<div class="text-xs font-bold text-slate-400 uppercase mb-1">No cierran con los márgenes</div><div class="max-h-56 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 mb-4">
+      ${noCierran.map(x=>`<div class="px-3 py-2 text-sm"><div class="font-medium">${esc(x.p.nombre)} <span class="text-slate-400 text-xs">${esc(x.p.id)}</span></div>
+        <div class="text-xs text-slate-500 num">${LISTAS.map(l=>`${l.corto} ${money(x.p.precios[l.k])}${Math.abs(x.calc[l.k]-x.p.precios[l.k])>0.02?` <span class="text-amber-700">(daría ${money(x.calc[l.k])})</span>`:''}`).join(' · ')}</div></div>`).join('')}</div>`:''}
+    <button id="btnCostos" onclick="aplicarCostos('${lineaId}')" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl" ${cierran.length?'':'disabled'}>Pasar ${cierran.length} productos a calculado</button>`, 'sm:max-w-2xl');
+  window.__cierran = cierran;
+}
+async function aplicarCostos(lineaId){
+  const lista = window.__cierran || []; const b0=$('btnCostos'); if(b0){ b0.disabled=true; b0.textContent='Guardando…'; }
+  try{
+    const ops = [];
+    lista.forEach(x=>{
+      ops.push(b=>b.set(db.collection('costos').doc(x.p.id), { costo:x.costo, actualizado: FV.serverTimestamp() }));
+      // Los precios no cambian (se guardan los calculados, iguales a los actuales salvo centavos de redondeo)
+      ops.push(b=>b.set(db.collection('productos').doc(x.p.id), { modo:'calculado', precios: x.calc, actualizado: FV.serverTimestamp() }, { merge:true }));
+    });
+    await commitEnLotes(ops); cerrarModal(); toast(`${lista.length} productos ahora se calculan desde el costo.`);
+  }catch(e){ console.error(e); toast('No se pudo guardar.','err'); }
+}
+
+/* ---------- CARGAR EN EL SISTEMA (admin) ---------- */
+function vPendientes(){
+  const lista = pendientes.slice().sort((a,b)=> lineaNombre(a.lineaId).localeCompare(lineaNombre(b.lineaId),'es') || (a.nombre||'').localeCompare(b.nombre||'','es'));
+  const filas = lista.map(x=>`
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 flex gap-3 items-start">
+      <input type="checkbox" class="mt-1.5 w-5 h-5 accent-emerald-600 shrink-0" onchange="marcarCargado('${esc(x.id)}', this)" title="Ya lo cargué en el sistema">
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2"><button onclick="copiarCodigo('${esc(x.id)}')" class="num font-bold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-md text-sm inline-flex items-center gap-1">${esc(x.id)}<i data-lucide="copy" class="w-3 h-3"></i></button>
+          <span class="font-semibold text-slate-900">${esc(x.nombre)}</span>${x.nuevo?'<span class="text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">Producto nuevo</span>':''}</div>
+        <div class="text-xs text-slate-400 mt-0.5">${esc(lineaNombre(x.lineaId))} · ${esc(x.motivo||'')}</div>
+        <div class="grid grid-cols-3 gap-1.5 mt-2">
+          ${LISTAS.map(l=>{ const a=(x.antes||{})[l.k], n=(x.despues||{})[l.k]; const cambia = a==null || r2(a)!==r2(n);
+            return `<div class="rounded-lg px-2 py-1.5 ${cambia?'bg-amber-50':'bg-slate-50'}"><div class="text-[10px] font-semibold text-slate-400 uppercase">${l.lista} · ${l.corto}</div>
+              ${a!=null && cambia?`<div class="text-[11px] text-slate-400 line-through num">${money(a)}</div>`:''}<div class="num font-bold ${cambia?'text-slate-900':'text-slate-400'}">${money(n)}</div></div>`; }).join('')}
+        </div>
+      </div>
+    </div>`).join('');
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Cargar en el sistema</h1>
+      <p class="text-slate-500 text-sm mt-1 max-w-2xl">Precios que cambiaron en el portal y todavía hay que cargar en el sistema de facturación. Marcá cada uno cuando lo cargues.</p></div>
+      ${lista.length?`<div class="flex gap-2"><button onclick="copiarPendientes()" class="border border-slate-300 font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2"><i data-lucide="copy" class="w-4 h-4"></i>Copiar lista</button>
+        <button onclick="marcarTodosCargados()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-xl">Ya cargué todo</button></div>`:''}
+    </div>
+    <div class="grid gap-3">${filas || `<div class="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500"><i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-500 mx-auto mb-2"></i>Todo al día: no hay precios por cargar.</div>`}</div>`;
+}
+async function marcarCargado(id, chk){
+  chk.disabled = true;
+  try{ await db.collection('pendientesSistema').doc(id).delete(); toast('Marcado como cargado.'); }
+  catch(e){ chk.checked=false; chk.disabled=false; toast('No se pudo marcar.','err'); }
+}
+async function marcarTodosCargados(){
+  if(!confirm('¿Ya cargaste en el sistema los '+pendientes.length+' precios?')) return;
+  await commitEnLotes(pendientes.map(x=>b=>b.delete(db.collection('pendientesSistema').doc(x.id)))); toast('Listo, todo cargado.');
+}
+function copiarPendientes(){
+  const t = pendientes.map(x=>`${x.id}\t${x.nombre}\t${LISTAS.map(l=>`${l.lista}: ${Number((x.despues||{})[l.k]).toFixed(2).replace('.',',')}`).join('\t')}`).join('\n');
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Lista copiada. Pegala en Excel o en una nota.')).catch(()=>toast('No se pudo copiar.','err'));
+}
+
+/* ---------- IMPORTAR LISTAS DESDE EXCEL (admin) ---------- */
+function vImportar(){
+  const r = importacion;
+  return `
+    <div class="max-w-3xl">
+      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Importar listas</h1>
+      <p class="text-slate-500 text-sm mt-1 mb-6">Elegí los tres archivos de Excel (Lista 1, 4 y 6). Cada solapa se toma como una línea y los productos se cruzan por código. Los archivos se leen en tu computadora: no se suben a ningún lado.</p>
+      <label class="block border-2 border-dashed border-slate-300 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer bg-white">
+        <i data-lucide="file-spreadsheet" class="w-8 h-8 text-slate-400 mx-auto mb-2"></i>
+        <div class="font-semibold">Elegir los archivos de Excel</div><div class="text-xs text-slate-400 mt-1">.xls o .xlsx · podés elegir los tres juntos</div>
+        <input type="file" multiple accept=".xls,.xlsx" class="hidden" onchange="leerExcels(this.files)"></label>
+      ${r ? vResultadoImportacion(r) : ''}
+    </div>`;
+}
+const norm = s => String(s==null?'':s).replace(/\s+/g,' ').trim().toUpperCase();
+function detectarLista(nombreArchivo, hojas){
+  const n = nombreArchivo.toUpperCase();
+  const m = n.match(/N[º°O]?\s*([146])\b/) || n.match(/LISTA[^0-9]*([146])/);
+  if(m) return { '1':'dist', '4':'may', '6':'com' }[m[1]];
+  for(const filas of hojas){ for(const f of filas.slice(0,5)) for(const c of f){ const t = norm(c); if(/^L ?1$/.test(t)) return 'dist'; if(/^L ?4$/.test(t)) return 'may'; if(/^L ?6$/.test(t)) return 'com'; } }
+  return '';
+}
+function leerHoja(filas, nombreHoja){
+  let hr = -1, cols = {};
+  for(let i=0;i<Math.min(45, filas.length);i++){
+    const v = filas[i].map(norm);
+    if(v.includes('CODIGO') || (v.includes('ARTICULO') && v.includes('DESCRIPCION'))){ hr=i; v.forEach((x,j)=>{ if(x && cols[x]===undefined) cols[x]=j; }); break; }
+  }
+  if(hr<0) return { error:'No encontré la fila de encabezados (CODIGO / PRODUCTO / PRECIO).', items:[] };
+  const cc = cols['CODIGO']!==undefined ? cols['CODIGO'] : cols['ARTICULO'];
+  const cn = Object.entries(cols).find(([k,j])=> (k.startsWith('PRODUCTO') || k==='DESCRIPCION' || (k==='ARTICULO' && j!==cc)))?.[1];
+  const cp = Object.entries(cols).find(([k])=> k.startsWith('PRECIO') || k==='COMERCIO')?.[1];
+  const cpub = cols['PUBLICO'], cm = cols['MASTER'], cb = cols['CODIGO BARRAS'];
+  if(cn===undefined || cp===undefined) return { error:'Faltan columnas de producto o precio.', items:[] };
+  const items = []; let seccion = '';
+  for(let i=hr+1;i<filas.length;i++){
+    const f = filas[i]; const cod = f[cc], nom = f[cn], pr = f[cp];
+    const vacio = v => v==null || String(v).trim()==='';
+    if(vacio(cod) && !vacio(nom) && vacio(pr)){ seccion = norm(nom); if(/IVA/.test(seccion)) seccion=''; continue; }
+    if(vacio(cod) || vacio(nom)) continue;
+    let codigo = String(cod).trim(); if(/^\d+\.0+$/.test(codigo)) codigo = codigo.replace(/\.0+$/,'');
+    if(!/^[0-9A-Za-z\-_.*+]+$/.test(codigo)) continue;
+    const precio = typeof pr==='number' ? pr : parseNum(pr);
+    const masterTxt = cm!==undefined ? norm(f[cm]) : '';
+    items.push({ codigo, nombre: String(nom).replace(/\s+/g,' ').trim(), precio: precio!=null ? r2(precio) : null, seccion,
+      publico: cpub!==undefined ? (typeof f[cpub]==='number' ? f[cpub] : parseNum(f[cpub])) : null,
+      master: parseInt((masterTxt.match(/\d+/)||[])[0],10) || null,
+      barras: cb!==undefined && !vacio(f[cb]) ? String(f[cb]).replace(/\.0+$/,'').trim() : null });
+  }
+  return { items };
+}
+async function leerExcels(files){
+  if(!files || !files.length) return;
+  const archivos = [];
+  for(const file of files){
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const hojas = wb.SheetNames.map(n=>({ nombre:n, filas: XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, raw:true, defval:null }) }));
+    archivos.push({ nombre:file.name, lista: detectarLista(file.name, hojas.map(h=>h.filas)), hojas });
+  }
+  importacion = { archivos, analisis:null };
+  analizarImportacion(); render();
+}
+function analizarImportacion(){
+  const r = importacion; const prod = {}; const avisos = []; const errores = [];
+  r.archivos.forEach(a=>{
+    if(!a.lista){ errores.push(`No pude saber qué lista es "${a.nombre}". Elegila abajo.`); return; }
+    a.hojas.forEach(h=>{
+      const res = leerHoja(h.filas, h.nombre);
+      if(res.error){ avisos.push(`${a.nombre} › ${h.nombre}: ${res.error}`); return; }
+      const lineaNom = norm(h.nombre), lineaId = slug(lineaNom);
+      res.items.forEach(it=>{
+        const p = prod[it.codigo] || (prod[it.codigo] = { codigo:it.codigo, nombre:it.nombre, lineaId, lineaNom, seccion:it.seccion, master:it.master, publico:it.publico, barras:it.barras, precios:{}, nombres:{} });
+        p.precios[a.lista] = it.precio; p.nombres[a.lista] = it.nombre;
+        if(a.lista==='dist'){ p.nombre = it.nombre; }
+        if(it.publico!=null && p.publico==null) p.publico = it.publico;
+        if(it.master && !p.master) p.master = it.master;
+        if(it.barras && !p.barras) p.barras = it.barras;
+        if(p.lineaId!==lineaId) avisos.push(`El código ${it.codigo} aparece en dos líneas (${p.lineaNom} y ${lineaNom}).`);
+      });
+    });
+  });
+  const listasCargadas = [...new Set(r.archivos.map(a=>a.lista).filter(Boolean))];
+  const incompletos = [], nombresDistintos = [];
+  Object.values(prod).forEach(p=>{
+    const faltan = listasCargadas.filter(k=> p.precios[k]==null);
+    if(faltan.length) incompletos.push({ p, faltan });
+    const ns = [...new Set(Object.values(p.nombres))]; if(ns.length>1) nombresDistintos.push({ p, ns });
+  });
+  const porLinea = {}; Object.values(prod).forEach(p=>{ porLinea[p.lineaNom] = (porLinea[p.lineaNom]||0)+1; });
+  r.analisis = { prod, avisos, errores, incompletos, nombresDistintos, porLinea, listasCargadas };
+}
+function cambiarListaArchivo(i, v){ importacion.archivos[i].lista = v; analizarImportacion(); render(); }
+function vResultadoImportacion(r){
+  const a = r.analisis; if(!a) return '';
+  const total = Object.keys(a.prod).length;
+  const existentes = Object.keys(a.prod).filter(c=> productos.some(p=>p.id===c)).length;
+  const completos = Object.values(a.prod).filter(p=> LISTAS.every(l=>p.precios[l.k]!=null)).length;
+  return `
+    <div class="mt-6 space-y-4">
+      <div class="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+        ${r.archivos.map((f,i)=>`<div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3"><div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(f.nombre)}</div><div class="text-xs text-slate-400">${f.hojas.length} solapas</div></div>
+          <select class="field !w-auto" onchange="cambiarListaArchivo(${i}, this.value)"><option value="">¿Qué lista es?</option>${LISTAS.map(l=>`<option value="${l.k}" ${f.lista===l.k?'selected':''}>${l.lista} · ${l.nombre}</option>`).join('')}</select></div>`).join('')}
+      </div>
+      ${a.errores.map(t=>`<div class="text-sm text-rose-700 bg-rose-50 rounded-xl p-3">${esc(t)}</div>`).join('')}
+      <div class="grid grid-cols-3 gap-2">
+        <div class="bg-white border border-slate-200 rounded-xl p-3"><div class="text-2xl font-extrabold num">${total}</div><div class="text-xs text-slate-500">productos</div></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-3"><div class="text-2xl font-extrabold num">${Object.keys(a.porLinea).length}</div><div class="text-xs text-slate-500">líneas</div></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-3"><div class="text-2xl font-extrabold num">${completos}</div><div class="text-xs text-slate-500">con los 3 precios</div></div>
+      </div>
+      <div class="flex flex-wrap gap-1.5">${Object.entries(a.porLinea).map(([l,n])=>`<span class="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">${esc(l)} · ${n}</span>`).join('')}</div>
+      ${a.incompletos.length?`<div class="bg-amber-50 rounded-xl p-4"><div class="font-semibold text-amber-900 text-sm mb-1">Productos que no están en las tres listas (${a.incompletos.length})</div>
+        <div class="text-xs text-amber-900 space-y-0.5">${a.incompletos.map(x=>`<div><b>${esc(x.p.codigo)}</b> ${esc(x.p.nombre)} — falta en ${x.faltan.map(k=>LISTAS.find(l=>l.k===k).nombre).join(', ')}</div>`).join('')}</div>
+        <div class="text-xs text-amber-800 mt-2">Se importan igual; completá el precio que falta desde el catálogo.</div></div>`:''}
+      ${a.nombresDistintos.length?`<div class="bg-slate-100 rounded-xl p-4"><div class="font-semibold text-sm mb-1">Mismo código con nombre distinto entre listas (${a.nombresDistintos.length})</div>
+        <div class="text-xs text-slate-600 space-y-0.5">${a.nombresDistintos.map(x=>`<div><b>${esc(x.p.codigo)}</b>: ${x.ns.map(esc).join(' / ')} <span class="text-slate-400">→ se usa el de la Lista 1</span></div>`).join('')}</div></div>`:''}
+      ${a.avisos.length?`<details class="text-xs text-slate-500"><summary class="cursor-pointer font-semibold">Avisos de lectura (${a.avisos.length})</summary><div class="mt-1 space-y-0.5">${a.avisos.map(t=>`<div>${esc(t)}</div>`).join('')}</div></details>`:''}
+      ${existentes?`<div class="text-sm text-slate-700 bg-brand-50 rounded-xl p-3">${existentes} de estos productos ya están en el catálogo: se actualizan nombre, línea, bulto y precios. Fotos, costos y marcas de "nuevo" se mantienen. Los cambios de precio pasan a "Cargar en el sistema".</div>`:''}
+      <button id="btnImportar" onclick="importarCatalogo()" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-3 rounded-xl" ${a.errores.length||!total?'disabled':''}>Importar ${total} productos</button>
+    </div>`;
+}
+async function importarCatalogo(){
+  const a = importacion && importacion.analisis; if(!a) return;
+  const btn = $('btnImportar'); btn.disabled=true; btn.textContent='Importando…';
+  try{
+    const ops = [];
+    const nombresLinea = [...new Set(Object.values(a.prod).map(p=>p.lineaNom))];
+    // respeta el orden de las solapas del primer archivo
+    const orden = (importacion.archivos[0].hojas||[]).map(h=>slug(norm(h.nombre)));
+    nombresLinea.forEach(n=>{ const id = slug(n); if(!lineas.some(l=>l.id===id)) ops.push(b=>b.set(db.collection('lineas').doc(id), { nombre:n, orden: Math.max(0, orden.indexOf(id)) })); });
+    let cambiosPrecio = 0;
+    Object.values(a.prod).forEach(np=>{
+      const actual = productos.find(p=>p.id===np.codigo);
+      const precios = {}; LISTAS.forEach(l=>{ precios[l.k] = np.precios[l.k]!=null ? np.precios[l.k] : (actual && actual.precios ? actual.precios[l.k] : null); });
+      const datos = { codigo:np.codigo, nombre:np.nombre, lineaId:np.lineaId, seccion:np.seccion||'', master:np.master||null, publico: np.publico!=null ? r2(np.publico) : null, barras:np.barras||null };
+      if(!actual){
+        Object.assign(datos, { precios, modo:'manual', nuevo:false, activo:true, creado: FV.serverTimestamp(), actualizado: FV.serverTimestamp() });
+        ops.push(b=>b.set(db.collection('productos').doc(np.codigo), datos));       // carga inicial: ya está en el sistema
+      } else if(!preciosIguales(actual.precios, precios)){
+        cambiosPrecio++;
+        ops.push(b=>agregarCambioAlLote(b, actual, precios, 'Importación de listas', Object.assign(datos, { modo:'manual' })));
+      } else {
+        ops.push(b=>b.set(db.collection('productos').doc(np.codigo), Object.assign(datos, { actualizado: FV.serverTimestamp() }), { merge:true }));
+      }
+    });
+    await commitEnLotes(ops);
+    importacion = null; toast(`Catálogo importado.${cambiosPrecio?` ${cambiosPrecio} precios cambiaron y quedaron en "Cargar en el sistema".`:''}`);
+    irTab('catalogo');
+  }catch(e){ console.error(e); toast('Error importando: '+(e.message||e),'err'); btn.disabled=false; btn.textContent='Reintentar importación'; }
+}
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trondial Portal</title>
+<meta name="description" content="Trondial Portal — herramientas de trabajo de Trondial.">
+<meta name="theme-color" content="#0e5691">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Cpath d='M18 20h28v7H35.5v19h-7V27H18z' fill='white'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
+      colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+      boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
+    } }
+  };
+</script>
+<style>
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  .field{ width:100%; border:1px solid #e2e8f0; border-radius:.6rem; padding:.6rem .8rem; font-size:.9rem; background:#fff; }
+  .field:focus{ outline:none; border-color:#1487d8; box-shadow:0 0 0 3px #dcf0ff; }
+  .lbl{ display:block; font-size:.75rem; font-weight:600; color:#64748b; margin-bottom:.3rem; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+
+<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+    <button onclick="irA('inicio')" class="flex items-center gap-2.5 text-left">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-brand-700 flex items-center justify-center text-white shadow-sm shrink-0">
+        <i data-lucide="layout-grid" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">PORTAL</span></div>
+        <div class="text-[11px] text-slate-400 leading-tight">Herramientas de trabajo</div>
+      </div>
+    </button>
+    <div id="sessionBar" class="flex items-center gap-3"></div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
+<div id="modalRoot"></div>
+
+<script>
+/* ===================== CONFIGURACIÓN ===================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyAA1nEPhtZ5s8TD3wATBOvI5vW0lFEu3KU",
+  authDomain: "trondial-portal.firebaseapp.com",
+  projectId: "trondial-portal",
+  storageBucket: "trondial-portal.firebasestorage.app",
+  messagingSenderId: "116037416042",
+  appId: "1:116037416042:web:efd4862444a1c41ea2c613"
+};
+// Proyecto viejo de Trondial Envíos: solo se usa para copiar sus datos al portal.
+const configEnviosViejo = {
+  apiKey: "AIzaSyDKvmdivMB6-y0Fm-yhbnAn4P5qd0qrZuE",
+  authDomain: "trondial-envios.firebaseapp.com",
+  projectId: "trondial-envios",
+  storageBucket: "trondial-envios.firebasestorage.app",
+  messagingSenderId: "424573354148",
+  appId: "1:424573354148:web:647621147e256079ee2631"
+};
+const OWNER_EMAIL = 'trondialpedidos@gmail.com';
+
+const MODULOS = [
+  { id:'envios', nombre:'Envíos', desc:'Pedidos, rutas, entregas y seguimiento de choferes.', url:'envios/', icon:'truck',
+    niveles:{ admin:'Administrador', repartidor:'Repartidor' } },
+  { id:'ventas', nombre:'Ventas', desc:'Catálogo, precios por tipo de cliente y promociones.', url:'ventas/', icon:'tag',
+    niveles:{ admin:'Administrador', vendedor:'Vendedor' } },
+];
+
+/* ===================== ESTADO ===================== */
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+auth.languageCode = 'es';
+
+let vista = 'cargando';      // cargando | login | registro | verificar | sinInvitacion | inactivo | inicio | usuarios | migracion
+let usuario = null;          // usuario de Firebase Auth
+let perfil = null;           // ficha en /usuarios/{uid}
+let unsubPerfil = null;
+let activando = false;
+let datosUsuarios = { usuarios:[], invitaciones:[], repartidores:[] };
+let unsubUsuarios = [];
+let migracion = { estado:'inicial', conteos:null, log:[] };
+
+/* ===================== UTILIDADES ===================== */
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function iconos(){ if(window.lucide) lucide.createIcons(); }
+function toast(msg, tipo){
+  const colores = { ok:'bg-emerald-600', err:'bg-rose-600', info:'bg-slate-800' };
+  const el = document.createElement('div');
+  el.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[60] text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[92vw] ' + (colores[tipo||'ok']);
+  el.textContent = msg; document.body.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 3400);
+}
+function urlPortal(){ return location.origin + location.pathname.replace(/index\.html$/,''); }
+function errorAuth(e){
+  const c = (e && e.code) || '';
+  const m = {
+    'auth/invalid-credential':'Correo o contraseña incorrectos.',
+    'auth/wrong-password':'Correo o contraseña incorrectos.',
+    'auth/user-not-found':'Correo o contraseña incorrectos.',
+    'auth/invalid-email':'El correo no es válido.',
+    'auth/email-already-in-use':'Ese correo ya tiene cuenta. Ingresá con tu contraseña, o usá "Olvidé mi contraseña".',
+    'auth/weak-password':'La contraseña tiene que tener al menos 6 caracteres.',
+    'auth/too-many-requests':'Demasiados intentos. Esperá unos minutos y probá de nuevo.',
+    'auth/network-request-failed':'Sin conexión. Revisá internet y probá de nuevo.',
+    'auth/user-disabled':'Esta cuenta está deshabilitada.',
+    'auth/unauthorized-continue-uri':'Firebase no tiene autorizado el dominio de esta página (Authentication → Configuración → Dominios autorizados).',
+    'auth/unauthorized-domain':'Firebase no tiene autorizado el dominio de esta página (Authentication → Configuración → Dominios autorizados).',
+    'auth/operation-not-allowed':'El ingreso con correo y contraseña no está activado en Firebase (Authentication → Sign-in method).',
+    'auth/quota-exceeded':'Firebase llegó al límite de mails por hoy. Probá de nuevo más tarde.',
+  };
+  return m[c] || ('No se pudo completar: ' + (e && e.message ? e.message : 'error desconocido'));
+}
+function modal(titulo, cuerpo){
+  $('modalRoot').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this) cerrarModal()">
+      <div class="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
+          <h3 class="font-bold text-lg text-slate-900">${titulo}</h3>
+          <button onclick="cerrarModal()" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="p-5">${cuerpo}</div>
+      </div>
+    </div>`;
+  iconos();
+}
+function cerrarModal(){ $('modalRoot').innerHTML=''; }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
+
+/* ===================== FLUJO DE INGRESO ===================== */
+auth.onAuthStateChanged(async u=>{
+  usuario = u;
+  if(unsubPerfil){ unsubPerfil(); unsubPerfil=null; }
+  perfil = null; detenerUsuarios();
+  if(!u){ if(vista!=='registro') vista='login'; render(); return; }
+  if(!u.emailVerified){ vista='verificar'; render(); return; }
+  escucharPerfil();
+});
+
+function escucharPerfil(){
+  vista='cargando'; render();
+  unsubPerfil = db.collection('usuarios').doc(usuario.uid).onSnapshot(async doc=>{
+    if(doc.exists){
+      perfil = doc.data();
+      if(!perfil.activo){ vista='inactivo'; detenerUsuarios(); }
+      else if(['cargando','login','registro','verificar','sinInvitacion','inactivo'].includes(vista)){ vista = vistaPedida() || 'inicio'; if(vista==='usuarios') escucharUsuarios(); }
+      render();
+    } else {
+      perfil = null;
+      await activarCuenta();
+    }
+  }, err=>{
+    console.error(err);
+    vista='inactivo'; render();
+  });
+}
+function vistaPedida(){
+  const h = location.hash.replace('#','');
+  if(['usuarios','migracion'].includes(h) && perfil && perfil.dueno) return h;
+  return null;
+}
+
+// Primera vez que entra alguien con su correo verificado: se crea su ficha.
+async function activarCuenta(){
+  if(activando) return; activando = true;
+  const email = (usuario.email||'').toLowerCase();
+  try{
+    if(email === OWNER_EMAIL){
+      await db.collection('usuarios').doc(usuario.uid).set({
+        nombre: 'Marcos', email, dueno:true, activo:true,
+        permisos:{ envios:'admin', ventas:'admin' },
+        creado: firebase.firestore.FieldValue.serverTimestamp(),
+        actualizado: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      return; // el listener del perfil se dispara solo
+    }
+    const inv = await db.collection('invitaciones').doc(email).get();
+    if(!inv.exists){ vista='sinInvitacion'; render(); return; }
+    const d = inv.data();
+    const ficha = { nombre:d.nombre, email, dueno:false, activo:true, permisos:d.permisos||{},
+      creado: firebase.firestore.FieldValue.serverTimestamp(), actualizado: firebase.firestore.FieldValue.serverTimestamp() };
+    if(d.repartidorId) ficha.repartidorId = d.repartidorId;
+    await db.collection('usuarios').doc(usuario.uid).set(ficha);
+    await db.collection('invitaciones').doc(email).delete().catch(()=>{});
+  }catch(e){
+    console.error('No se pudo activar la cuenta', e);
+    vista='sinInvitacion'; render();
+  }finally{ activando=false; }
+}
+
+// Manda el mail de confirmación. Si Firebase rechaza la dirección de regreso al portal
+// (dominio no autorizado), lo manda igual sin esa dirección: el link confirma el correo
+// y la persona vuelve al portal a mano.
+async function mandarVerificacion(u){
+  try{ await u.sendEmailVerification({ url: urlPortal() }); }
+  catch(e){
+    if(['auth/unauthorized-continue-uri','auth/invalid-continue-uri','auth/missing-continue-uri'].includes(e && e.code)){
+      console.warn('Dominio no autorizado en Firebase; se envía sin dirección de regreso.', e);
+      await u.sendEmailVerification();
+    } else throw e;
+  }
+}
+async function ingresar(e){
+  e.preventDefault();
+  const email = $('lEmail').value.trim(), pass = $('lPass').value;
+  const btn = $('lBtn'); btn.disabled=true; btn.textContent='Ingresando…';
+  try{ await auth.signInWithEmailAndPassword(email, pass); }
+  catch(err){ $('lErr').textContent = errorAuth(err); btn.disabled=false; btn.textContent='Ingresar'; }
+}
+async function registrar(e){
+  e.preventDefault();
+  const email = $('rEmail').value.trim(), p1 = $('rPass').value, p2 = $('rPass2').value;
+  if(p1.length < 6){ $('rErr').textContent='La contraseña tiene que tener al menos 6 caracteres.'; return; }
+  if(p1 !== p2){ $('rErr').textContent='Las contraseñas no coinciden.'; return; }
+  const btn = $('rBtn'); btn.disabled=true; btn.textContent='Creando…';
+  try{
+    const cred = await auth.createUserWithEmailAndPassword(email, p1);
+    vista='verificar'; render();
+    try{ await mandarVerificacion(cred.user); toast('Te mandamos el mail de confirmación.'); }
+    catch(err){ console.error(err); toast(errorAuth(err),'err'); }
+  }catch(err){ const el=$('rErr'); if(el){ el.textContent = errorAuth(err); } btn.disabled=false; btn.textContent='Crear mi contraseña'; }
+}
+async function olvide(){
+  const email = ($('lEmail') && $('lEmail').value.trim()) || '';
+  if(!email){ $('lErr').textContent='Escribí tu correo arriba y volvé a tocar "Olvidé mi contraseña".'; return; }
+  try{ await auth.sendPasswordResetEmail(email, { url: urlPortal() }); }
+  catch(e){ if(['auth/unauthorized-continue-uri','auth/invalid-continue-uri'].includes(e && e.code)){ try{ await auth.sendPasswordResetEmail(email); }catch(_){} } }
+  $('lErr').className='text-sm text-emerald-700 mt-2 min-h-[1.25rem]';
+  $('lErr').textContent='Si ese correo tiene cuenta, te llegó un mail para crear una contraseña nueva. Revisá también el correo no deseado.';
+}
+async function yaVerifique(){
+  await usuario.reload();
+  if(auth.currentUser.emailVerified){
+    await auth.currentUser.getIdToken(true);
+    usuario = auth.currentUser; escucharPerfil();
+  } else { toast('Todavía no figura verificado. Tocá el link del mail y volvé a probar.','info'); }
+}
+async function reenviarVerificacion(){
+  try{ await mandarVerificacion(usuario); toast('Te reenviamos el mail. Puede tardar unos minutos.'); }
+  catch(e){ console.error(e); toast(errorAuth(e),'err'); }
+}
+async function salir(){ detenerUsuarios(); vista='login'; await auth.signOut(); }
+window.addEventListener('focus', ()=>{ if(vista==='verificar' && usuario) usuario.reload().then(()=>{ if(auth.currentUser && auth.currentUser.emailVerified) yaVerifique(); }).catch(()=>{}); });
+
+function irA(v){
+  if(!perfil || !perfil.activo) return;
+  if((v==='usuarios'||v==='migracion') && !perfil.dueno) return;
+  vista = v;
+  history.replaceState(null,'', v==='inicio' ? location.pathname : '#'+v);
+  if(v==='usuarios') escucharUsuarios(); else detenerUsuarios();
+  render(); window.scrollTo(0,0);
+}
+
+/* ===================== RENDER ===================== */
+function render(){
+  renderSessionBar();
+  const r = $('root');
+  const vistas = { cargando:vCargando, login:vLogin, registro:vRegistro, verificar:vVerificar, sinInvitacion:vSinInvitacion,
+    inactivo:vInactivo, inicio:vInicio, usuarios:vUsuarios, migracion:vMigracion };
+  r.innerHTML = (vistas[vista]||vCargando)();
+  iconos();
+}
+function renderSessionBar(){
+  const el = $('sessionBar');
+  if(!usuario || !perfil){ el.innerHTML = usuario ? `<button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i>Salir</button>` : ''; return; }
+  el.innerHTML = `
+    <span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
+      <i data-lucide="${perfil.dueno?'shield-check':'user'}" class="w-3.5 h-3.5"></i>${esc(perfil.nombre)}</span>
+    <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i>Cerrar sesión</button>`;
+}
+function tarjetaCentro(contenido){
+  return `<div class="max-w-md mx-auto py-8 sm:py-14"><div class="bg-white border border-slate-200 shadow-soft rounded-2xl p-6 sm:p-8">${contenido}</div></div>`;
+}
+function vCargando(){ return `<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>`; }
+
+function vLogin(){
+  return tarjetaCentro(`
+    <h1 class="text-2xl font-extrabold text-slate-900">Ingresar</h1>
+    <p class="text-sm text-slate-500 mt-1 mb-6">Entrá una sola vez: la sesión queda guardada en este dispositivo.</p>
+    <form onsubmit="ingresar(event)" class="space-y-4" novalidate>
+      <div><label class="lbl" for="lEmail">Correo</label><input class="field" id="lEmail" type="email" autocomplete="email" required></div>
+      <div><label class="lbl" for="lPass">Contraseña</label><input class="field" id="lPass" type="password" autocomplete="current-password" required></div>
+      <div id="lErr" class="text-sm text-rose-600 min-h-[1.25rem]" role="alert"></div>
+      <button id="lBtn" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Ingresar</button>
+    </form>
+    <button onclick="olvide()" class="mt-3 text-sm text-slate-500 hover:text-brand-700 font-medium">Olvidé mi contraseña</button>
+    <div class="mt-6 pt-5 border-t border-slate-100 text-sm text-slate-600">
+      ¿Es tu primera vez? <button onclick="vista='registro'; render()" class="font-semibold text-brand-700 hover:underline">Creá tu contraseña</button>
+      <div class="text-xs text-slate-400 mt-1">Solo funciona con el correo con el que te invitaron.</div>
+    </div>`);
+}
+function vRegistro(){
+  return tarjetaCentro(`
+    <h1 class="text-2xl font-extrabold text-slate-900">Primera vez</h1>
+    <p class="text-sm text-slate-500 mt-1 mb-6">Usá el correo con el que te invitaron y elegí una contraseña. Después te llega un mail para confirmar que el correo es tuyo.</p>
+    <form onsubmit="registrar(event)" class="space-y-4" novalidate>
+      <div><label class="lbl" for="rEmail">Correo</label><input class="field" id="rEmail" type="email" autocomplete="email" required></div>
+      <div><label class="lbl" for="rPass">Contraseña <span class="font-normal text-slate-400">(mínimo 6 caracteres)</span></label><input class="field" id="rPass" type="password" autocomplete="new-password" required></div>
+      <div><label class="lbl" for="rPass2">Repetí la contraseña</label><input class="field" id="rPass2" type="password" autocomplete="new-password" required></div>
+      <div id="rErr" class="text-sm text-rose-600 min-h-[1.25rem]" role="alert"></div>
+      <button id="rBtn" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Crear mi contraseña</button>
+    </form>
+    <button onclick="vista='login'; render()" class="mt-4 text-sm text-slate-500 hover:text-brand-700 font-medium">← Ya tengo contraseña</button>`);
+}
+function vVerificar(){
+  return tarjetaCentro(`
+    <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-4"><i data-lucide="mail-check" class="w-6 h-6"></i></div>
+    <h1 class="text-2xl font-extrabold text-slate-900">Confirmá tu correo</h1>
+    <p class="text-sm text-slate-600 mt-2">Te mandamos un mail a <b>${esc(usuario && usuario.email)}</b>. Abrilo, tocá el link y volvé acá. Si no lo ves, revisá el correo no deseado.</p>
+    <button onclick="yaVerifique()" class="w-full mt-6 bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Ya lo confirmé</button>
+    <div class="flex justify-between mt-4 text-sm">
+      <button onclick="reenviarVerificacion()" class="text-slate-500 hover:text-brand-700 font-medium">Reenviar el mail</button>
+      <button onclick="salir()" class="text-slate-500 hover:text-rose-600 font-medium">Usar otro correo</button>
+    </div>`);
+}
+function vSinInvitacion(){
+  return tarjetaCentro(`
+    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4"><i data-lucide="user-x" class="w-6 h-6"></i></div>
+    <h1 class="text-xl font-extrabold text-slate-900">Este correo no tiene acceso</h1>
+    <p class="text-sm text-slate-600 mt-2"><b>${esc(usuario && usuario.email)}</b> no tiene una invitación al portal. Pedile al administrador que te invite con este mismo correo y después volvé a entrar.</p>
+    <button onclick="location.reload()" class="w-full mt-6 border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Ya me invitaron, reintentar</button>
+    <button onclick="salir()" class="w-full mt-2 text-sm text-slate-500 hover:text-rose-600 font-medium py-2">Usar otro correo</button>`);
+}
+function vInactivo(){
+  return tarjetaCentro(`
+    <div class="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-4"><i data-lucide="lock" class="w-6 h-6"></i></div>
+    <h1 class="text-xl font-extrabold text-slate-900">Tu acceso está pausado</h1>
+    <p class="text-sm text-slate-600 mt-2">Tu usuario está desactivado. Si creés que es un error, hablá con el administrador.</p>
+    <button onclick="salir()" class="w-full mt-6 border border-slate-300 font-semibold py-2.5 rounded-xl">Cerrar sesión</button>`);
+}
+
+function vInicio(){
+  const p = perfil.permisos || {};
+  const tarjetas = MODULOS.filter(m => p[m.id] || perfil.dueno).map(m=>{
+    const nivel = m.niveles[p[m.id]] || (perfil.dueno ? 'Dueño' : '');
+    const listo = !!m.url;
+    const inner = `
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-xl ${listo?'bg-brand-700 text-white':'bg-slate-100 text-slate-400'} flex items-center justify-center shrink-0"><i data-lucide="${m.icon}" class="w-6 h-6"></i></div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-lg text-slate-900">${m.nombre}</span>
+            ${listo ? `<span class="text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full">${esc(nivel)}</span>` : `<span class="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Próximamente</span>`}
+          </div>
+          <div class="text-sm text-slate-500 mt-1">${m.desc}</div>
+        </div>
+        ${listo ? '<i data-lucide="chevron-right" class="w-5 h-5 text-slate-300 mt-3"></i>' : ''}
+      </div>`;
+    return listo
+      ? `<a href="${m.url}" class="block bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 hover:shadow-md transition">${inner}</a>`
+      : `<div class="bg-white/60 border border-dashed border-slate-300 rounded-2xl p-5">${inner}</div>`;
+  }).join('');
+  const admin = perfil.dueno ? `
+    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mt-10 mb-3">Administración del portal</h2>
+    <div class="grid sm:grid-cols-2 gap-3">
+      <button onclick="irA('usuarios')" class="text-left bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 transition flex items-center gap-4">
+        <div class="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0"><i data-lucide="users" class="w-5 h-5"></i></div>
+        <div><div class="font-bold text-slate-900">Usuarios y permisos</div><div class="text-sm text-slate-500">Invitar personas, darles acceso a cada módulo y dar de baja.</div></div>
+      </button>
+      <button onclick="irA('migracion')" class="text-left bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 transition flex items-center gap-4">
+        <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0"><i data-lucide="database-zap" class="w-5 h-5"></i></div>
+        <div><div class="font-bold text-slate-900">Copiar datos de Envíos</div><div class="text-sm text-slate-500">Traer clientes, repartidores y pedidos del sistema actual.</div></div>
+      </button>
+    </div>` : '';
+  const vacio = !tarjetas ? `<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">Todavía no tenés acceso a ningún módulo. Pedile al administrador que te lo asigne.</div>` : '';
+  return `
+    <div class="mb-6">
+      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Hola, ${esc((perfil.nombre||'').split(' ')[0])}</h1>
+      <p class="text-slate-500 mt-1">Elegí con qué querés trabajar.</p>
+    </div>
+    <div class="grid md:grid-cols-2 gap-4">${tarjetas}</div>${vacio}${admin}`;
+}
+
+/* ===================== USUARIOS Y PERMISOS (dueño) ===================== */
+function escucharUsuarios(){
+  detenerUsuarios();
+  const err = e => { console.error(e); toast('No se pudieron cargar los usuarios.','err'); };
+  unsubUsuarios.push(db.collection('usuarios').onSnapshot(s=>{ datosUsuarios.usuarios = s.docs.map(d=>({uid:d.id, ...d.data()})); if(vista==='usuarios') render(); }, err));
+  unsubUsuarios.push(db.collection('invitaciones').onSnapshot(s=>{ datosUsuarios.invitaciones = s.docs.map(d=>({email:d.id, ...d.data()})); if(vista==='usuarios') render(); }, err));
+  unsubUsuarios.push(db.collection('repartidores').onSnapshot(s=>{ datosUsuarios.repartidores = s.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es')); if(vista==='usuarios') render(); }, err));
+}
+function detenerUsuarios(){ unsubUsuarios.forEach(f=>f()); unsubUsuarios=[]; }
+
+function chipsPermisos(per, repId){
+  per = per || {};
+  const chips = MODULOS.filter(m=>per[m.id]).map(m=>{
+    let t = m.nombre + ': ' + (m.niveles[per[m.id]]||per[m.id]);
+    if(m.id==='envios' && per.envios==='repartidor'){ const r = datosUsuarios.repartidores.find(x=>x.id===repId); t += r ? ' ('+r.nombre+')' : ' (sin vincular)'; }
+    return `<span class="text-[11px] font-semibold text-brand-800 bg-brand-50 px-2 py-0.5 rounded-full">${esc(t)}</span>`;
+  });
+  return chips.length ? chips.join(' ') : '<span class="text-[11px] text-slate-400">Sin módulos</span>';
+}
+function vUsuarios(){
+  const us = datosUsuarios.usuarios.slice().sort((a,b)=>(b.dueno?1:0)-(a.dueno?1:0) || (a.nombre||'').localeCompare(b.nombre||'','es'));
+  const filas = us.map(u=>`
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 ${u.activo?'':'opacity-60'}">
+      <div class="w-10 h-10 rounded-full ${u.dueno?'bg-slate-900 text-white':'bg-brand-100 text-brand-700'} font-bold flex items-center justify-center shrink-0">${esc((u.nombre||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</div>
+      <div class="min-w-0 flex-1">
+        <div class="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">${esc(u.nombre)}
+          ${u.dueno?'<span class="text-[11px] font-semibold text-white bg-slate-900 px-2 py-0.5 rounded-full">Dueño</span>':''}
+          ${u.activo?'':'<span class="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">Inactivo</span>'}</div>
+        <div class="text-xs text-slate-400 truncate">${esc(u.email)}</div>
+        <div class="mt-1.5 flex flex-wrap gap-1">${chipsPermisos(u.permisos, u.repartidorId)}</div>
+      </div>
+      <button onclick="abrirEditarUsuario('${u.uid}')" class="shrink-0 text-sm font-semibold text-slate-500 hover:text-brand-700 border border-slate-200 rounded-lg px-3 py-1.5">Editar</button>
+    </div>`).join('');
+  const invs = datosUsuarios.invitaciones.map(i=>`
+    <div class="bg-white border border-dashed border-slate-300 rounded-2xl p-4 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"><i data-lucide="mail" class="w-5 h-5"></i></div>
+      <div class="min-w-0 flex-1">
+        <div class="font-semibold text-slate-900">${esc(i.nombre)} <span class="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full ml-1">Invitación pendiente</span></div>
+        <div class="text-xs text-slate-400 truncate">${esc(i.email)}</div>
+        <div class="mt-1.5 flex flex-wrap gap-1">${chipsPermisos(i.permisos, i.repartidorId)}</div>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2 shrink-0">
+        <button onclick="mostrarMensajeInvitacion('${esc(i.email)}')" class="text-sm font-semibold text-brand-700 border border-brand-200 rounded-lg px-3 py-1.5">Mensaje</button>
+        <button onclick="cancelarInvitacion('${esc(i.email)}')" class="text-sm font-semibold text-slate-400 hover:text-rose-600 px-2 py-1.5">Cancelar</button>
+      </div>
+    </div>`).join('');
+  return `
+    <button onclick="irA('inicio')" class="text-sm text-slate-500 hover:text-brand-700 font-medium mb-4 inline-flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Inicio</button>
+    <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Usuarios y permisos</h1>
+      <p class="text-slate-500 mt-1">Cada persona entra con su correo. Vos decidís a qué módulos accede y con qué permiso.</p></div>
+      <button onclick="abrirInvitar()" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="user-plus" class="w-4 h-4"></i>Invitar persona</button>
+    </div>
+    ${invs ? `<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Invitaciones pendientes</h2><div class="grid gap-3 mb-8">${invs}</div>` : ''}
+    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Usuarios (${us.length})</h2>
+    <div class="grid gap-3">${filas || '<div class="text-sm text-slate-400">Cargando…</div>'}</div>`;
+}
+
+function camposPermisos(per, repId){
+  per = per || {};
+  const reps = datosUsuarios.repartidores;
+  const vinculados = new Set(datosUsuarios.usuarios.filter(u=>u.repartidorId).map(u=>u.repartidorId)
+    .concat(datosUsuarios.invitaciones.filter(i=>i.repartidorId).map(i=>i.repartidorId)));
+  return MODULOS.map(m=>`
+    <div><label class="lbl" for="perm_${m.id}">${m.nombre}${m.url?'':' <span class="font-normal text-slate-400">(próximamente)</span>'}</label>
+      <select class="field" id="perm_${m.id}" onchange="toggleRep()">
+        <option value="">Sin acceso</option>
+        ${Object.entries(m.niveles).map(([k,v])=>`<option value="${k}" ${per[m.id]===k?'selected':''}>${v}</option>`).join('')}
+      </select></div>
+    ${m.id==='envios' ? `
+    <div id="repWrap" class="${per.envios==='repartidor'?'':'hidden'}">
+      <label class="lbl" for="permRep">¿Qué repartidor es en Envíos?</label>
+      <select class="field" id="permRep">
+        <option value="">Elegí un repartidor</option>
+        ${reps.map(r=>`<option value="${esc(r.id)}" ${r.id===repId?'selected':''}>${esc(r.nombre)}${vinculados.has(r.id)&&r.id!==repId?' — ya tiene usuario':''}</option>`).join('')}
+      </select>
+      <div class="text-xs text-slate-400 mt-1">${reps.length?'Así ve solo sus propios pedidos.':'Todavía no hay repartidores: copiá los datos de Envíos o creá el repartidor en Envíos primero.'}</div>
+    </div>` : ''}`).join('');
+}
+function toggleRep(){ const w=$('repWrap'); if(w) w.classList.toggle('hidden', $('perm_envios').value!=='repartidor'); }
+function leerPermisos(){
+  const per = {};
+  MODULOS.forEach(m=>{ const v = $('perm_'+m.id).value; if(v) per[m.id]=v; });
+  const repId = per.envios==='repartidor' ? $('permRep').value : '';
+  if(per.envios==='repartidor' && !repId) return { error:'Elegí qué repartidor es.' };
+  return { per, repId };
+}
+
+function abrirInvitar(){
+  modal('Invitar persona', `
+    <form onsubmit="guardarInvitacion(event)" class="space-y-4" novalidate>
+      <div><label class="lbl" for="iNombre">Nombre</label><input class="field" id="iNombre" required placeholder="Ej.: Diego Fernández"></div>
+      <div><label class="lbl" for="iEmail">Correo</label><input class="field" id="iEmail" type="email" required placeholder="correo@ejemplo.com">
+        <div class="text-xs text-slate-400 mt-1">Tiene que ser un correo que la persona revise: ahí le llega la confirmación.</div></div>
+      ${camposPermisos({}, '')}
+      <div id="iErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Crear invitación</button>
+    </form>`);
+}
+async function guardarInvitacion(e){
+  e.preventDefault();
+  const nombre = $('iNombre').value.trim(), email = $('iEmail').value.trim().toLowerCase();
+  if(!nombre){ $('iErr').textContent='Poné el nombre.'; return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('iErr').textContent='El correo no es válido.'; return; }
+  if(datosUsuarios.usuarios.some(u=>(u.email||'').toLowerCase()===email)){ $('iErr').textContent='Ese correo ya tiene usuario. Editalo desde la lista.'; return; }
+  const lp = leerPermisos(); if(lp.error){ $('iErr').textContent=lp.error; return; }
+  if(!Object.keys(lp.per).length){ $('iErr').textContent='Dale acceso al menos a un módulo.'; return; }
+  const inv = { nombre, email, permisos: lp.per, invitadoPor: usuario.email, creado: firebase.firestore.FieldValue.serverTimestamp() };
+  if(lp.repId) inv.repartidorId = lp.repId;
+  try{
+    await db.collection('invitaciones').doc(email).set(inv);
+    cerrarModal(); mostrarMensajeInvitacion(email, inv);
+  }catch(err){ console.error(err); $('iErr').textContent='No se pudo guardar la invitación.'; }
+}
+function textoInvitacion(nombre, email){
+  return `Hola ${nombre.split(' ')[0]}! Te di acceso a Trondial Portal.\n\n1. Entrá a ${urlPortal()}\n2. Tocá "Creá tu contraseña" y usá este correo: ${email}\n3. Te va a llegar un mail para confirmar el correo: tocá el link y volvé a la página.\n\nEntrás una sola vez y queda la sesión guardada en el celular.`;
+}
+function mostrarMensajeInvitacion(email, inv){
+  inv = inv || datosUsuarios.invitaciones.find(i=>i.email===email); if(!inv) return;
+  const txt = textoInvitacion(inv.nombre, email);
+  modal('Invitación lista', `
+    <p class="text-sm text-slate-600 mb-3">Mandale este mensaje a <b>${esc(inv.nombre)}</b> por WhatsApp. Cuando cree su contraseña, entra con los permisos que elegiste.</p>
+    <textarea id="invTxt" class="field h-44 text-sm" readonly>${esc(txt)}</textarea>
+    <div class="grid grid-cols-2 gap-2 mt-3">
+      <button onclick="copiarInvitacion()" class="border border-slate-300 font-semibold py-2.5 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="copy" class="w-4 h-4"></i>Copiar</button>
+      <a href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="message-circle" class="w-4 h-4"></i>WhatsApp</a>
+    </div>`);
+}
+function copiarInvitacion(){
+  const t = $('invTxt'); t.select();
+  (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject()).then(()=>toast('Mensaje copiado.')).catch(()=>{ document.execCommand('copy'); toast('Mensaje copiado.'); });
+}
+async function cancelarInvitacion(email){
+  if(!confirm('¿Cancelar la invitación de '+email+'?')) return;
+  try{ await db.collection('invitaciones').doc(email).delete(); toast('Invitación cancelada.','info'); }catch(e){ toast('No se pudo cancelar.','err'); }
+}
+
+function abrirEditarUsuario(uid){
+  const u = datosUsuarios.usuarios.find(x=>x.uid===uid); if(!u) return;
+  const yo = uid === usuario.uid;
+  modal('Editar usuario', `
+    <form onsubmit="guardarUsuario(event,'${uid}')" class="space-y-4" novalidate>
+      <div><label class="lbl" for="uNombre">Nombre</label><input class="field" id="uNombre" value="${esc(u.nombre)}"></div>
+      <div class="text-xs text-slate-400 -mt-2">${esc(u.email)}</div>
+      ${camposPermisos(u.permisos, u.repartidorId)}
+      ${yo ? `<div class="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">Sos el dueño de la plataforma: no podés desactivarte ni quitarte ese rol.</div>` : `
+      <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer">
+        <input type="checkbox" id="uActivo" class="mt-1" ${u.activo?'checked':''}>
+        <span><span class="font-semibold text-sm">Activo</span><span class="block text-xs text-slate-500">Si lo desactivás, deja de ver datos al instante, aunque tenga la app abierta.</span></span></label>
+      <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer">
+        <input type="checkbox" id="uDueno" class="mt-1" ${u.dueno?'checked':''}>
+        <span><span class="font-semibold text-sm">Dueño de la plataforma</span><span class="block text-xs text-slate-500">Puede gestionar usuarios y ve todo. Usalo solo para una cuenta de respaldo de confianza.</span></span></label>`}
+      <div id="uErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Guardar cambios</button>
+    </form>`);
+}
+async function guardarUsuario(e, uid){
+  e.preventDefault();
+  const u = datosUsuarios.usuarios.find(x=>x.uid===uid); if(!u) return;
+  const yo = uid === usuario.uid;
+  const lp = leerPermisos(); if(lp.error){ $('uErr').textContent=lp.error; return; }
+  const cambios = {
+    nombre: $('uNombre').value.trim() || u.nombre,
+    permisos: lp.per,
+    activo: yo ? true : $('uActivo').checked,
+    dueno: yo ? true : $('uDueno').checked,
+    actualizado: firebase.firestore.FieldValue.serverTimestamp(),
+    repartidorId: lp.repId ? lp.repId : firebase.firestore.FieldValue.delete(),
+  };
+  try{ await db.collection('usuarios').doc(uid).update(cambios); cerrarModal(); toast('Usuario actualizado.'); }
+  catch(err){ console.error(err); $('uErr').textContent='No se pudo guardar.'; }
+}
+
+/* ===================== COPIA DE DATOS DESDE ENVÍOS (dueño) ===================== */
+const COLECCIONES_ENVIOS = [
+  ['repartidores','Repartidores'], ['clientes','Clientes'], ['pedidos','Pedidos'], ['comprobantes','Comprobantes de entrega'],
+  ['intentos','Intentos de entrega'], ['ubicaciones','Ubicaciones de choferes'], ['pedidosWebPendientes','Pedidos web pendientes'],
+];
+let appVieja = null;
+async function conectarViejo(){
+  if(!appVieja) appVieja = firebase.initializeApp(configEnviosViejo, 'enviosViejo');
+  if(!appVieja.auth().currentUser) await appVieja.auth().signInAnonymously();
+  return appVieja.firestore();
+}
+function logMig(t){ migracion.log.push(t); const el=$('migLog'); if(el){ el.textContent = migracion.log.join('\n'); el.scrollTop = el.scrollHeight; } }
+async function revisarViejo(){
+  migracion = { estado:'revisando', conteos:null, log:[] }; render();
+  try{
+    const viejo = await conectarViejo();
+    const conteos = {};
+    for(const [c] of COLECCIONES_ENVIOS){ const s = await viejo.collection(c).get(); conteos[c] = s.size; }
+    migracion.conteos = conteos; migracion.estado='revisado';
+  }catch(e){ console.error(e); migracion.estado='error'; migracion.log.push('No se pudo leer el sistema actual: '+(e.message||e)); }
+  render();
+}
+async function borrarColeccion(c){
+  const s = await db.collection(c).get();
+  for(let i=0;i<s.docs.length;i+=400){
+    const b = db.batch(); s.docs.slice(i,i+400).forEach(d=>b.delete(d.ref)); await b.commit();
+  }
+  return s.size;
+}
+async function copiarDatos(){
+  const limpia = $('migLimpia').checked;
+  if(!confirm('¿Copiar los datos de Envíos al portal ahora?'+(limpia?' Primero se borra lo que haya de Envíos en el portal.':''))) return;
+  migracion.estado='copiando'; migracion.log=[]; render();
+  try{
+    const viejo = await conectarViejo();
+    const datos = {};
+    for(const [c,nombre] of COLECCIONES_ENVIOS){
+      const s = await viejo.collection(c).get();
+      datos[c] = s.docs.map(d=>({ id:d.id, data:d.data() }));
+      logMig('Leídos '+s.size+' · '+nombre);
+    }
+    // Ajustes de datos para el modelo nuevo
+    const repDePedido = {}; datos.pedidos.forEach(p=>{ repDePedido[p.id] = p.data.repartidorId || ''; });
+    datos.repartidores.forEach(r=>{ delete r.data.clave; });
+    datos.pedidosWebPendientes.forEach(p=>{ delete p.data.secreto; });
+    datos.comprobantes.forEach(c=>{ if(!c.data.repartidorId && repDePedido[c.data.pedidoId]) c.data.repartidorId = repDePedido[c.data.pedidoId]; });
+    if(limpia){
+      for(const [c,nombre] of COLECCIONES_ENVIOS){ const n = await borrarColeccion(c); if(n) logMig('Borrados '+n+' previos · '+nombre); }
+    }
+    for(const [c,nombre] of COLECCIONES_ENVIOS){
+      const lista = datos[c];
+      for(let i=0;i<lista.length;i+=400){
+        const b = db.batch(); lista.slice(i,i+400).forEach(x=>b.set(db.collection(c).doc(x.id), x.data)); await b.commit();
+      }
+      logMig('Copiados '+lista.length+' · '+nombre);
+    }
+    logMig('Listo. Los datos de Envíos ya están en el portal.');
+    migracion.estado='listo';
+  }catch(e){
+    console.error(e); logMig('Error: '+(e.message||e)); migracion.estado='error';
+  }
+  const el=$('migEstado'); if(el) render();
+}
+function vMigracion(){
+  const m = migracion;
+  const total = m.conteos ? Object.values(m.conteos).reduce((a,b)=>a+b,0) : 0;
+  const tabla = m.conteos ? `
+    <div class="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100 mb-4">
+      ${COLECCIONES_ENVIOS.map(([c,n])=>`<div class="flex justify-between px-4 py-2.5 text-sm"><span>${n}</span><b class="tabular-nums">${(m.conteos[c]||0).toLocaleString('es-UY')}</b></div>`).join('')}
+      <div class="flex justify-between px-4 py-2.5 text-sm bg-slate-50 rounded-b-2xl"><span class="font-semibold">Total de registros</span><b class="tabular-nums">${total.toLocaleString('es-UY')}</b></div>
+    </div>
+    ${total > 9000 ? `<div class="text-sm text-amber-800 bg-amber-50 rounded-xl p-3 mb-4">Son muchos registros: el plan gratuito permite unas 20.000 escrituras por día. Hacé una sola copia por día.</div>`:''}
+    <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 mb-4 cursor-pointer">
+      <input type="checkbox" id="migLimpia" class="mt-1" checked>
+      <span><span class="font-semibold text-sm">Copia limpia</span><span class="block text-xs text-slate-500">Antes de copiar, borra lo que haya de Envíos en el portal. Así el portal queda idéntico al sistema actual.</span></span></label>
+    <button onclick="copiarDatos()" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl" ${m.estado==='copiando'?'disabled':''}>Copiar datos al portal</button>` : '';
+  return `
+    <button onclick="irA('inicio')" class="text-sm text-slate-500 hover:text-brand-700 font-medium mb-4 inline-flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Inicio</button>
+    <div class="max-w-2xl">
+      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Copiar datos de Envíos</h1>
+      <p class="text-slate-500 mt-1 mb-6">Trae los datos del sistema actual de Trondial Envíos al portal. El sistema actual no se modifica: solo se lee. Las claves de choferes no se copian.</p>
+      <div id="migEstado"></div>
+      ${!m.conteos ? `<button onclick="revisarViejo()" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl" ${m.estado==='revisando'?'disabled':''}>${m.estado==='revisando'?'Revisando…':'1. Revisar qué hay en el sistema actual'}</button>` : tabla}
+      ${m.estado==='copiando' ? `<div class="text-sm text-brand-700 font-semibold mt-4">Copiando… no cierres esta pantalla.</div>` : ''}
+      ${m.estado==='listo' ? `<div class="text-sm text-emerald-700 bg-emerald-50 rounded-xl p-3 mt-4 font-semibold">Copia terminada. Ya podés abrir Envíos desde el inicio.</div>` : ''}
+      <pre id="migLog" class="mt-4 text-xs bg-slate-900 text-slate-100 rounded-xl p-4 max-h-64 overflow-auto whitespace-pre-wrap ${m.log.length?'':'hidden'}">${esc(m.log.join('\n'))}</pre>
+    </div>`;
+}
+
+render();
+</script>
+</body>
+</html>
