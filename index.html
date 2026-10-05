@@ -117,6 +117,10 @@ function errorAuth(e){
     'auth/too-many-requests':'Demasiados intentos. Esperá unos minutos y probá de nuevo.',
     'auth/network-request-failed':'Sin conexión. Revisá internet y probá de nuevo.',
     'auth/user-disabled':'Esta cuenta está deshabilitada.',
+    'auth/unauthorized-continue-uri':'Firebase no tiene autorizado el dominio de esta página (Authentication → Configuración → Dominios autorizados).',
+    'auth/unauthorized-domain':'Firebase no tiene autorizado el dominio de esta página (Authentication → Configuración → Dominios autorizados).',
+    'auth/operation-not-allowed':'El ingreso con correo y contraseña no está activado en Firebase (Authentication → Sign-in method).',
+    'auth/quota-exceeded':'Firebase llegó al límite de mails por hoy. Probá de nuevo más tarde.',
   };
   return m[c] || ('No se pudo completar: ' + (e && e.message ? e.message : 'error desconocido'));
 }
@@ -197,6 +201,18 @@ async function activarCuenta(){
   }finally{ activando=false; }
 }
 
+// Manda el mail de confirmación. Si Firebase rechaza la dirección de regreso al portal
+// (dominio no autorizado), lo manda igual sin esa dirección: el link confirma el correo
+// y la persona vuelve al portal a mano.
+async function mandarVerificacion(u){
+  try{ await u.sendEmailVerification({ url: urlPortal() }); }
+  catch(e){
+    if(['auth/unauthorized-continue-uri','auth/invalid-continue-uri','auth/missing-continue-uri'].includes(e && e.code)){
+      console.warn('Dominio no autorizado en Firebase; se envía sin dirección de regreso.', e);
+      await u.sendEmailVerification();
+    } else throw e;
+  }
+}
 async function ingresar(e){
   e.preventDefault();
   const email = $('lEmail').value.trim(), pass = $('lPass').value;
@@ -212,14 +228,16 @@ async function registrar(e){
   const btn = $('rBtn'); btn.disabled=true; btn.textContent='Creando…';
   try{
     const cred = await auth.createUserWithEmailAndPassword(email, p1);
-    await cred.user.sendEmailVerification({ url: urlPortal() });
     vista='verificar'; render();
-  }catch(err){ $('rErr').textContent = errorAuth(err); btn.disabled=false; btn.textContent='Crear mi contraseña'; }
+    try{ await mandarVerificacion(cred.user); toast('Te mandamos el mail de confirmación.'); }
+    catch(err){ console.error(err); toast(errorAuth(err),'err'); }
+  }catch(err){ const el=$('rErr'); if(el){ el.textContent = errorAuth(err); } btn.disabled=false; btn.textContent='Crear mi contraseña'; }
 }
 async function olvide(){
   const email = ($('lEmail') && $('lEmail').value.trim()) || '';
   if(!email){ $('lErr').textContent='Escribí tu correo arriba y volvé a tocar "Olvidé mi contraseña".'; return; }
-  try{ await auth.sendPasswordResetEmail(email, { url: urlPortal() }); }catch(e){ /* no revelamos si el correo existe */ }
+  try{ await auth.sendPasswordResetEmail(email, { url: urlPortal() }); }
+  catch(e){ if(['auth/unauthorized-continue-uri','auth/invalid-continue-uri'].includes(e && e.code)){ try{ await auth.sendPasswordResetEmail(email); }catch(_){} } }
   $('lErr').className='text-sm text-emerald-700 mt-2 min-h-[1.25rem]';
   $('lErr').textContent='Si ese correo tiene cuenta, te llegó un mail para crear una contraseña nueva. Revisá también el correo no deseado.';
 }
@@ -231,8 +249,8 @@ async function yaVerifique(){
   } else { toast('Todavía no figura verificado. Tocá el link del mail y volvé a probar.','info'); }
 }
 async function reenviarVerificacion(){
-  try{ await usuario.sendEmailVerification({ url: urlPortal() }); toast('Te reenviamos el mail.'); }
-  catch(e){ toast(errorAuth(e),'err'); }
+  try{ await mandarVerificacion(usuario); toast('Te reenviamos el mail. Puede tardar unos minutos.'); }
+  catch(e){ console.error(e); toast(errorAuth(e),'err'); }
 }
 async function salir(){ detenerUsuarios(); vista='login'; await auth.signOut(); }
 window.addEventListener('focus', ()=>{ if(vista==='verificar' && usuario) usuario.reload().then(()=>{ if(auth.currentUser && auth.currentUser.emailVerified) yaVerifique(); }).catch(()=>{}); });
