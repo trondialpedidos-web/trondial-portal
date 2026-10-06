@@ -1,1 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Reloj · Trondial</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ccircle cx='32' cy='33' r='17' fill='none' stroke='white' stroke-width='5'/%3E%3Cpath d='M32 23v11l7 5' stroke='%23fbbf24' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'] } } } };</script>
+<style>
+  html,body{ height:100%; }
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); -webkit-user-select:none; user-select:none; touch-action:manipulation; }
+  .num{ font-variant-numeric: tabular-nums; }
+  .tecla{ font-size:2rem; font-weight:700; border-radius:1.25rem; background:#1e293b; color:#fff; height:4.5rem; }
+  .tecla:active{ background:#334155; transform:scale(.97); }
+  @media (min-height:800px){ .tecla{ height:5.25rem; } }
+</style>
+</head>
+<body class="bg-slate-950 text-white antialiased">
+<div id="root" class="min-h-full flex flex-col"></div>
 
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAA1nEPhtZ5s8TD3wATBOvI5vW0lFEu3KU",
+  authDomain: "trondial-portal.firebaseapp.com",
+  projectId: "trondial-portal",
+  storageBucket: "trondial-portal.firebasestorage.app",
+  messagingSenderId: "116037416042",
+  appId: "1:116037416042:web:efd4862444a1c41ea2c613"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();      // sin modo sin conexión: la marca tiene que llegar al servidor en el momento
+const FV = firebase.firestore.FieldValue;
+
+/* ---------- estado ---------- */
+let pantalla = 'cargando';  // cargando | sesionPortal | emparejar | inactivo | numero | accion | pin | ok | error
+let equipo = null, sucursal = null, codigo = '';
+let entrada = '', funcionario = null, estadoF = null, tipoElegido = null, mensaje = '', detalleOk = null;
+const intentos = {};        // numero -> {n, hasta}
+let volverTimer = null, relojTimer = null, vistoAnotado = false;
+
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function hoyKey(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function hora(d){ return d.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false}); }
+function aFecha(v){ if(!v) return null; if(v.toDate) return v.toDate(); return new Date(v); }
+async function hashPin(numero, pin){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`trondial|${numero}|${pin}`));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function distanciaMetros(a,b){
+  const R=6371000, r=x=>x*Math.PI/180, dLat=r(b.lat-a.lat), dLng=r(b.lng-a.lng);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLng/2)**2;
+  return Math.round(2*R*Math.asin(Math.sqrt(h)));
+}
+
+/* ---------- arranque: el equipo es una sesión anónima que el administrador activa ---------- */
+auth.onAuthStateChanged(async u=>{
+  if(!u){ try{ await auth.signInAnonymously(); }catch(e){ console.error(e); mensaje='No se pudo conectar con el servidor. Revisá internet.'; pantalla='error'; render(); } return; }
+  if(!u.isAnonymous){ pantalla='sesionPortal'; render(); return; }
+  escucharEquipo(u.uid);
+});
+function escucharEquipo(uid){
+  db.collection('dispositivos').doc(uid).onSnapshot(async doc=>{
+    if(!doc.exists){ equipo=null; await pedirCodigo(uid); pantalla='emparejar'; render(); return; }
+    equipo = doc.data();
+    if(!equipo.activo){ pantalla='inactivo'; render(); return; }
+    try{ const s = await db.collection('sucursales').doc(equipo.sucursalId).get(); sucursal = s.exists ? { id:s.id, ...s.data() } : { id:equipo.sucursalId, nombre:equipo.sucursalId }; }catch(e){ sucursal = { id:equipo.sucursalId, nombre:'' }; }
+    // "Último uso": se anota una sola vez por apertura (si no, cada anotación dispararía otra)
+    if(!vistoAnotado){ vistoAnotado = true; db.collection('dispositivos').doc(uid).update({ visto: FV.serverTimestamp() }).catch(()=>{}); }
+    if(['cargando','emparejar','inactivo'].includes(pantalla)) reiniciar();
+    else render();
+  }, err=>{ console.error(err); mensaje='No se pudo leer la configuración del equipo.'; pantalla='error'; render(); });
+}
+async function pedirCodigo(uid){
+  const ref = db.collection('solicitudesEquipo').doc(uid);
+  try{
+    const d = await ref.get();
+    if(d.exists){ codigo = d.data().codigo; return; }
+  }catch(e){}
+  codigo = String(Math.floor(100000 + Math.random()*900000));
+  await ref.set({ codigo, creado: FV.serverTimestamp(), agente: navigator.userAgent.slice(0,180), celular: /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) }).catch(e=>console.error(e));
+}
+
+/* ---------- flujo de marca ---------- */
+function reiniciar(){ clearTimeout(volverTimer); entrada=''; funcionario=null; estadoF=null; tipoElegido=null; mensaje=''; pantalla='numero'; render(); }
+function tecla(t){
+  if(t==='borrar'){ entrada = entrada.slice(0,-1); }
+  else if(t==='ok'){ return pantalla==='numero' ? buscarFuncionario() : confirmarPin(); }
+  else if(entrada.length < (pantalla==='pin'?6:8)) entrada += t;
+  mensaje=''; renderEntrada();
+  clearTimeout(volverTimer); volverTimer = setTimeout(reiniciar, 45000);
+}
+async function buscarFuncionario(){
+  const num = entrada.trim(); if(!num) return;
+  mensaje='Buscando…'; renderEntrada();
+  try{
+    const [t, e] = await Promise.all([ db.collection('tarjetas').doc(num).get(), db.collection('estadoFuncionario').doc(num).get() ]);
+    if(!t.exists || t.data().activo===false){ entrada=''; mensaje='Ese número no está habilitado. Revisalo o hablá con tu encargado.'; renderEntrada(); return; }
+    funcionario = { numero:num, ...t.data() }; estadoF = e.exists ? e.data() : null;
+    // Si quedó "adentro" desde otro día (se olvidó la salida), lo normal hoy es una entrada
+    const ult = estadoF && aFecha(estadoF.ultimaTs);
+    const adentroHoy = estadoF && estadoF.adentro && ult && hoyKey(ult)===hoyKey();
+    tipoElegido = adentroHoy ? 'salida' : 'entrada';
+    entrada=''; pantalla='accion'; render();
+  }catch(err){ console.error(err); mensaje='Sin conexión con el servidor. Probá de nuevo.'; renderEntrada(); }
+}
+function elegirTipo(t){ tipoElegido=t; entrada=''; mensaje=''; pantalla='pin'; render(); }
+async function confirmarPin(){
+  const pin = entrada; if(pin.length<4){ mensaje='El PIN tiene 4 dígitos o más.'; renderEntrada(); return; }
+  const num = funcionario.numero, lock = intentos[num];
+  if(lock && lock.hasta > Date.now()){ mensaje=`Demasiados intentos. Esperá ${Math.ceil((lock.hasta-Date.now())/1000)} segundos.`; entrada=''; renderEntrada(); return; }
+  mensaje='Registrando…'; renderEntrada();
+  try{
+    const datos = {
+      funcionario: num, nombre: funcionario.nombre || '', tipo: tipoElegido,
+      sucursalId: equipo.sucursalId, dispositivoId: auth.currentUser.uid,
+      pinHash: await hashPin(num, pin), origen: 'reloj', ts: FV.serverTimestamp(), fecha: hoyKey(),
+    };
+    if(equipo.tipo === 'celular'){
+      const pos = await ubicacion();
+      if(pos){ datos.ubic = { lat:pos.lat, lng:pos.lng, precision:pos.precision };
+        if(sucursal && sucursal.lat!=null) datos.ubic.distancia = distanciaMetros(pos, { lat:sucursal.lat, lng:sucursal.lng }); }
+      else datos.ubic = { sinDatos:true };
+    }
+    const marcaRef = db.collection('marcas').doc();
+    const b = db.batch();
+    b.set(marcaRef, datos);
+    b.set(db.collection('estadoFuncionario').doc(num), { adentro: tipoElegido==='entrada', ultimoTipo: tipoElegido, ultimaMarcaId: marcaRef.id, ultimaTs: FV.serverTimestamp(), sucursalId: equipo.sucursalId });
+    await Promise.race([ b.commit(), new Promise((_,mal)=>setTimeout(()=>mal({code:'timeout'}), 12000)) ]);
+    delete intentos[num];
+    detalleOk = { tipo: tipoElegido, nombre: funcionario.nombre, hora: new Date(), lejos: datos.ubic && datos.ubic.distancia > (sucursal && sucursal.radio || 300) };
+    pantalla='ok'; render();
+    clearTimeout(volverTimer); volverTimer = setTimeout(reiniciar, 5000);
+  }catch(err){
+    console.error(err);
+    if(err && err.code==='permission-denied'){
+      const l = intentos[num] || { n:0, hasta:0 }; l.n++; if(l.n>=5){ l.hasta = Date.now()+60000; l.n=0; } intentos[num]=l;
+      mensaje = 'PIN incorrecto.'; entrada=''; renderEntrada();
+    } else { mensaje = 'No se pudo registrar: sin conexión con el servidor. Probá de nuevo.'; entrada=''; renderEntrada(); }
+  }
+}
+function ubicacion(){
+  return new Promise(ok=>{
+    if(!navigator.geolocation) return ok(null);
+    navigator.geolocation.getCurrentPosition(p=>ok({ lat:p.coords.latitude, lng:p.coords.longitude, precision:Math.round(p.coords.accuracy) }), ()=>ok(null), { enableHighAccuracy:true, timeout:8000, maximumAge:60000 });
+  });
+}
+
+/* ---------- pantallas ---------- */
+function encabezado(){
+  return `<header class="flex items-center justify-between px-5 sm:px-8 pt-5">
+    <div><div class="text-xs font-bold tracking-widest text-amber-400">TRONDIAL · RELOJ</div><div class="text-lg sm:text-xl font-extrabold">${esc(sucursal?sucursal.nombre:'')}</div></div>
+    <div class="text-right"><div id="hora" class="num text-3xl sm:text-4xl font-black"></div><div id="fecha" class="text-xs text-slate-400 capitalize"></div></div>
+  </header>`;
+}
+function teclado(etiquetaOk){
+  const t = k => `<button class="tecla" onclick="tecla('${k}')">${k}</button>`;
+  return `<div class="grid grid-cols-3 gap-3 w-full max-w-sm mx-auto">${['1','2','3','4','5','6','7','8','9'].map(t).join('')}
+    <button class="tecla !text-lg !bg-slate-800 text-slate-300" onclick="tecla('borrar')" aria-label="Borrar">⌫</button>${t('0')}
+    <button class="tecla !text-lg !bg-emerald-500 !text-slate-950" onclick="tecla('ok')">${etiquetaOk}</button></div>`;
+}
+function render(){
+  const r = $('root');
+  const v = {
+    cargando: ()=>`<div class="m-auto text-slate-400">Conectando…</div>`,
+    error: ()=>`<div class="m-auto text-center px-6"><div class="text-2xl font-bold mb-2">Algo falló</div><div class="text-slate-400">${esc(mensaje)}</div><button onclick="location.reload()" class="mt-6 bg-white text-slate-900 font-bold px-6 py-3 rounded-xl">Reintentar</button></div>`,
+    sesionPortal: ()=>`<div class="m-auto text-center px-6 max-w-md"><div class="text-2xl font-bold mb-2">Este navegador tiene una sesión del portal abierta</div>
+      <div class="text-slate-400">Para usar este equipo como reloj del local hay que cerrarla. Si es tu equipo personal, no lo uses como reloj.</div>
+      <button onclick="auth.signOut().then(()=>location.reload())" class="mt-6 bg-white text-slate-900 font-bold px-6 py-3 rounded-xl">Cerrar sesión y usar como reloj</button></div>`,
+    emparejar: ()=>`<div class="m-auto text-center px-6 max-w-lg">
+      <div class="text-xs font-bold tracking-widest text-amber-400 mb-3">TRONDIAL · RELOJ</div>
+      <div class="text-2xl font-extrabold">Este equipo todavía no está activado</div>
+      <div class="text-slate-400 mt-2">El administrador tiene que activarlo desde <b>Portal → Personal → Equipos</b> con este código:</div>
+      <div class="num text-6xl sm:text-7xl font-black tracking-[.2em] text-amber-400 my-8">${esc(codigo.slice(0,3))} ${esc(codigo.slice(3))}</div>
+      <div class="text-sm text-slate-500">La pantalla se actualiza sola cuando lo activen.</div></div>`,
+    inactivo: ()=>`<div class="m-auto text-center px-6"><div class="text-2xl font-bold mb-2">Este equipo está desactivado</div><div class="text-slate-400">Hablá con el administrador.</div></div>`,
+    numero: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center gap-6 px-5 py-6">
+      <div class="text-center"><div class="text-xl sm:text-2xl font-bold">Ingresá tu número de funcionario</div>
+        <div id="visor" class="num text-5xl font-black h-16 mt-4 tracking-widest"></div><div id="msg" class="min-h-[1.5rem] text-amber-300 font-semibold"></div></div>
+      ${teclado('Seguir')}</main>`,
+    accion: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center items-center gap-6 px-5 py-6 text-center">
+      <div><div class="text-slate-400">Hola,</div><div class="text-3xl sm:text-4xl font-black">${esc(funcionario.nombre)}</div></div>
+      <div class="grid sm:grid-cols-2 gap-4 w-full max-w-xl">
+        <button onclick="elegirTipo('entrada')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='entrada'?'bg-emerald-500 text-slate-950 ring-4 ring-emerald-300':'bg-slate-800 text-slate-300'}">ENTRADA</button>
+        <button onclick="elegirTipo('salida')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='salida'?'bg-rose-500 text-white ring-4 ring-rose-300':'bg-slate-800 text-slate-300'}">SALIDA</button>
+      </div>
+      <button onclick="reiniciar()" class="text-slate-400 font-semibold underline">No soy yo</button></main>`,
+    pin: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center gap-6 px-5 py-6">
+      <div class="text-center"><div class="text-slate-400">${esc(funcionario.nombre)} · <b class="${tipoElegido==='entrada'?'text-emerald-400':'text-rose-400'}">${tipoElegido==='entrada'?'ENTRADA':'SALIDA'}</b></div>
+        <div class="text-xl sm:text-2xl font-bold mt-1">Ingresá tu PIN</div>
+        <div id="visor" class="num text-5xl font-black h-16 mt-4 tracking-[.4em]"></div><div id="msg" class="min-h-[1.5rem] text-amber-300 font-semibold"></div></div>
+      ${teclado('Marcar')}<button onclick="reiniciar()" class="text-slate-400 font-semibold underline mx-auto">Cancelar</button></main>`,
+    ok: ()=>`<div class="flex-1 flex flex-col items-center justify-center text-center px-6 ${detalleOk.tipo==='entrada'?'bg-emerald-500 text-slate-950':'bg-rose-500 text-white'}">
+      <div class="text-2xl font-bold opacity-80">${detalleOk.tipo==='entrada'?'Entrada registrada':'Salida registrada'}</div>
+      <div class="num text-8xl font-black my-4">${hora(detalleOk.hora)}</div>
+      <div class="text-3xl font-black">${esc(detalleOk.nombre)}</div><div class="text-lg font-semibold opacity-80 mt-1">${esc(sucursal?sucursal.nombre:'')}</div>
+      ${detalleOk.lejos?'<div class="mt-6 bg-black/20 rounded-xl px-4 py-2 font-semibold">Ubicación lejos del local: quedó registrado para revisar.</div>':''}
+      <button onclick="reiniciar()" class="mt-10 bg-black/20 font-bold px-6 py-3 rounded-xl">Listo</button></div>`,
+  };
+  r.innerHTML = (v[pantalla]||v.cargando)();
+  renderEntrada(); tickReloj();
+}
+function renderEntrada(){
+  const vis = $('visor'), m = $('msg');
+  if(vis) vis.textContent = pantalla==='pin' ? '•'.repeat(entrada.length) : entrada;
+  if(m) m.textContent = mensaje;
+}
+function tickReloj(){
+  const d = new Date();
+  if($('hora')) $('hora').textContent = d.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  if($('fecha')) $('fecha').textContent = d.toLocaleDateString('es-UY',{weekday:'long', day:'numeric', month:'long'});
+}
+setInterval(tickReloj, 1000);
+document.addEventListener('keydown', e=>{
+  if(!['numero','pin'].includes(pantalla)) return;
+  if(/^[0-9]$/.test(e.key)) tecla(e.key);
+  else if(e.key==='Backspace') tecla('borrar');
+  else if(e.key==='Enter') tecla('ok');
+  else if(e.key==='Escape') reiniciar();
+});
+render();
+</script>
+</body>
+</html>
