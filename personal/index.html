@@ -1,1 +1,782 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trondial Personal</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0e5691">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Ccircle cx='32' cy='33' r='17' fill='none' stroke='white' stroke-width='5'/%3E%3Cpath d='M32 23v11l7 5' stroke='%23fbbf24' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
+    colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+    boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
+  } } };
+</script>
+<style>
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  .field{ width:100%; border:1px solid #e2e8f0; border-radius:.6rem; padding:.55rem .75rem; font-size:.9rem; background:#fff; }
+  .field:focus{ outline:none; border-color:#1487d8; box-shadow:0 0 0 3px #dcf0ff; }
+  .lbl{ display:block; font-size:.75rem; font-weight:600; color:#64748b; margin-bottom:.3rem; }
+  .num{ font-variant-numeric: tabular-nums; }
+  @media print{ header, nav, .no-print{ display:none !important; } body{ background:#fff; } }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
 
+<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-2.5">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-950 flex items-center justify-center text-amber-400 shadow-sm shrink-0"><i data-lucide="clock" class="w-5 h-5"></i></div>
+      <div><div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">PERSONAL</span></div>
+        <div class="text-[11px] text-slate-400 leading-tight">Marcas, horarios y horas</div></div>
+    </div>
+    <div id="sessionBar" class="flex items-center gap-3"></div>
+  </div>
+</header>
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
+<div id="modalRoot"></div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAA1nEPhtZ5s8TD3wATBOvI5vW0lFEu3KU",
+  authDomain: "trondial-portal.firebaseapp.com",
+  projectId: "trondial-portal",
+  storageBucket: "trondial-portal.firebasestorage.app",
+  messagingSenderId: "116037416042",
+  appId: "1:116037416042:web:efd4862444a1c41ea2c613"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs:true }).catch(()=>{});
+const FV = firebase.firestore.FieldValue;
+const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const DIAS_C = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const MESES_C = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const MAX_JORNADA_H = 16;
+
+/* ===================== ESTADO ===================== */
+let perfil=null, nivel='', sinAcceso=false;
+let sucursales=[], funcionarios=[], dispositivos=[], solicitudes=[], config={ tolerancia:10 };
+let marcasHoy=[], marcasRango=[], rango={ desde:null, hasta:null }, unsubRango=null;
+let tab = (location.hash||'#hoy').slice(1) || 'hoy';
+let filtro = { q:'', sucursal:'' };
+let reporte = null, importacion = null;
+let unsubs = [];
+
+/* ===================== UTILIDADES ===================== */
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function iconos(){ if(window.lucide) lucide.createIcons(); }
+function hoyKey(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function deKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function sumarDias(k,n){ const d=deKey(k); d.setDate(d.getDate()+n); return hoyKey(d); }
+function diaSemana(k){ return (deKey(k).getDay()+6)%7; }
+function fechaLarga(k){ const d=deKey(k); return DIAS[diaSemana(k)]+' '+d.getDate()+' '+MESES_C[d.getMonth()]; }
+function fechaCorta(k){ const d=deKey(k); return DIAS_C[diaSemana(k)]+' '+d.getDate()+'/'+(d.getMonth()+1); }
+function aFecha(v){ if(!v) return null; if(v.toDate) return v.toDate(); return new Date(v); }
+function hhmm(d){ return d ? String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0') : '—'; }
+function aMin(h){ if(!h||!/^\d{1,2}:\d{2}$/.test(h)) return null; const [a,b]=h.split(':').map(Number); return a*60+b; }
+function tardeTxt(min){ return min<60 ? min+' min' : durTxt(min); }
+function durTxt(min){ if(min==null) return '—'; const m=Math.round(min); return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0'); }
+function sucNombre(id){ const s=sucursales.find(x=>x.id===id); return s ? s.nombre : (id||'—'); }
+function funNombre(n){ const f=funcionarios.find(x=>x.id===n); return f ? f.nombre : n; }
+function slug(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'x'; }
+async function hashPin(numero, pin){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`trondial|${numero}|${pin}`));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function pinAlAzar(){ let p; do{ p = String(Math.floor(Math.random()*10000)).padStart(4,'0'); }while(/^(\d)\1{3}$/.test(p) || '0123456789'.includes(p) || '9876543210'.includes(p)); return p; }
+function toast(msg, tipo){
+  const c = { ok:'bg-emerald-600', err:'bg-rose-600', info:'bg-slate-800' };
+  const el = document.createElement('div');
+  el.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[92vw] ' + (c[tipo||'ok']);
+  el.textContent = msg; document.body.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 3600);
+}
+function motivoError(e){
+  const c=(e&&e.code)||'';
+  if(c==='permission-denied') return 'Firebase no dio permiso. Revisá que estén publicadas las reglas de Firestore más nuevas.';
+  if(c==='unavailable') return 'Sin conexión con el servidor.';
+  return 'No se pudo guardar'+(c?' ('+c+')':'')+'.';
+}
+function modal(titulo, cuerpo, ancho){
+  $('modalRoot').innerHTML = `<div class="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this) cerrarModal()">
+    <div class="bg-white w-full ${ancho||'sm:max-w-lg'} rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[94vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 sticky top-0 bg-white z-10"><h3 class="font-bold text-lg text-slate-900">${titulo}</h3>
+        <button onclick="cerrarModal()" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+      <div class="p-5">${cuerpo}</div></div></div>`;
+  iconos();
+}
+function cerrarModal(){ $('modalRoot').innerHTML=''; }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
+function datosDoc(d){ return Object.assign({ id:d.id }, d.data({ serverTimestamps:'estimate' })); }
+
+/* ===================== INGRESO ===================== */
+firebase.auth().onAuthStateChanged(user=>{
+  if(!user || user.isAnonymous || !user.emailVerified){ location.href='../'; return; }
+  db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
+    perfil = doc.exists ? doc.data() : null;
+    const n = (perfil && perfil.activo) ? (perfil.dueno ? 'admin' : ((perfil.permisos||{}).personal||'')) : '';
+    if(n!=='admin'){ detener(); nivel=''; sinAcceso=true; render(); return; }
+    if(n!==nivel){ nivel=n; sinAcceso=false; detener(); escuchar(); }
+    render();
+  }, ()=>{ detener(); sinAcceso=true; render(); });
+});
+function detener(){ unsubs.forEach(f=>{try{f();}catch(e){}}); unsubs=[]; if(unsubRango){ unsubRango(); unsubRango=null; } }
+function escuchar(){
+  const on=(q,fn)=>unsubs.push(q.onSnapshot(fn, e=>console.error(e)));
+  on(db.collection('sucursales'), s=>{ sucursales = s.docs.map(datosDoc).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')); render(); });
+  on(db.collection('funcionarios'), s=>{ funcionarios = s.docs.map(datosDoc).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')); render(); });
+  on(db.collection('dispositivos'), s=>{ dispositivos = s.docs.map(datosDoc); render(); });
+  on(db.collection('solicitudesEquipo'), s=>{ solicitudes = s.docs.map(datosDoc); render(); });
+  on(db.collection('configPersonal').doc('general'), d=>{ if(d.exists) config = Object.assign({ tolerancia:10 }, d.data()); render(); });
+  // Marcas de hoy y de los 2 días anteriores (para salidas pendientes)
+  on(db.collection('marcas').where('fecha','>=',sumarDias(hoyKey(),-2)), s=>{ marcasHoy = s.docs.map(datosDoc); render(); });
+}
+function salir(){ detener(); firebase.auth().signOut().finally(()=>location.href='../'); }
+function irTab(t){ tab=t; history.replaceState(null,'','#'+t); render(); window.scrollTo(0,0); }
+setInterval(()=>{ if(tab==='hoy' && !$('modalRoot').innerHTML) render(); }, 60000);
+
+/* ===================== LÓGICA DE HORARIOS Y JORNADAS ===================== */
+// Horario previsto de un funcionario para una fecha: excepción de ese día o, si no hay, su horario semanal.
+function horarioDe(f, k){
+  const ex = (f.excepciones||{})[k];
+  if(ex) return ex.libre ? null : ex;
+  const h = (f.horario||{})[diaSemana(k)];
+  return (h && h.desde) ? h : null;
+}
+// Arma jornadas (entrada→salida) a partir de las marcas de un funcionario, ordenadas por hora.
+function jornadas(marcasF){
+  // La fecha de cada marca sale de la hora del servidor (no de la fecha que tenía la PC del local)
+  const ms = marcasF.filter(m=>!m.anulada).map(m=>{ const d = aFecha(m.ts); return Object.assign({}, m, { d, fecha: d ? hoyKey(d) : m.fecha }); }).filter(m=>m.d).sort((a,b)=>a.d-b.d);
+  const out = []; let abierta = null;
+  ms.forEach(m=>{
+    if(m.tipo==='entrada'){
+      if(abierta) out.push({ entrada:abierta, salida:null, fecha:abierta.fecha, incompleta:true });
+      abierta = m;
+    } else {
+      if(abierta && (m.d - abierta.d) <= MAX_JORNADA_H*3600000){ out.push({ entrada:abierta, salida:m, fecha:abierta.fecha, min:(m.d-abierta.d)/60000 }); abierta=null; }
+      else { if(abierta){ out.push({ entrada:abierta, salida:null, fecha:abierta.fecha, incompleta:true }); abierta=null; } out.push({ entrada:null, salida:m, fecha:m.fecha, incompleta:true }); }
+    }
+  });
+  if(abierta){ const enCurso = (Date.now()-abierta.d) <= MAX_JORNADA_H*3600000; out.push({ entrada:abierta, salida:null, fecha:abierta.fecha, incompleta:!enCurso, enCurso }); }
+  return out;
+}
+// Resultado de un día para un funcionario: previsto, jornadas, horas, tardanza, ausencia y alertas.
+function analizarDia(f, k, js){
+  const prev = horarioDe(f, k);
+  const delDia = js.filter(j=>j.fecha===k);
+  const entradas = delDia.filter(j=>j.entrada).map(j=>j.entrada.d).sort((a,b)=>a-b);
+  const minutos = delDia.reduce((s,j)=>s+(j.min||0),0);
+  let tarde = null, ausente = false, estado = 'libre';
+  const ahora = new Date(), esHoy = k===hoyKey(), pasado = k < hoyKey();
+  if(prev){
+    const ini = aMin(prev.desde);
+    if(entradas.length){
+      const e = entradas[0], minE = e.getHours()*60+e.getMinutes();
+      if(minE - ini > (config.tolerancia||0)) tarde = minE - ini;
+      estado = 'vino';
+    } else if(pasado || (esHoy && (ahora.getHours()*60+ahora.getMinutes()) > ini + (config.tolerancia||0))){ ausente = true; estado='ausente'; }
+    else estado = 'pendiente';
+  } else if(entradas.length) estado = 'extra';
+  const sucMarcas = [...new Set(delDia.flatMap(j=>[j.entrada,j.salida]).filter(Boolean).map(m=>m.sucursalId))];
+  const otroLocal = prev && prev.sucursalId && sucMarcas.some(s=>s!==prev.sucursalId);
+  const lejos = delDia.flatMap(j=>[j.entrada,j.salida]).filter(Boolean).some(m=>m.ubic && (m.ubic.sinDatos || m.ubic.distancia > (radioDe(m.sucursalId))));
+  return { k, prev, jornadas:delDia, minutos, tarde, ausente, estado, otroLocal, lejos, incompletas: delDia.filter(j=>j.incompleta).length, enCurso: delDia.some(j=>j.enCurso) };
+}
+function radioDe(sucId){ const s=sucursales.find(x=>x.id===sucId); return (s && s.radio) || 300; }
+
+/* ===================== RENDER ===================== */
+function render(){
+  renderBarra();
+  const r=$('root');
+  if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
+  if(!nivel){ r.innerHTML='<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
+  const foco = document.activeElement && document.activeElement.id; const pos = foco && $(foco) && $(foco).selectionStart;
+  const vistas = { hoy:vHoy, marcas:vMarcas, reporte:vReporte, funcionarios:vFuncionarios, sucursales:vSucursales, equipos:vEquipos, importar:vImportar };
+  r.innerHTML = vTabs() + (vistas[tab]||vHoy)();
+  if(foco && $(foco) && $(foco).tagName==='INPUT' && $(foco).type==='text'){ $(foco).focus(); try{ $(foco).setSelectionRange(pos,pos); }catch(e){} }
+  iconos();
+}
+function renderBarra(){
+  const el=$('sessionBar');
+  const portal = `<a href="../" class="text-xs font-semibold text-slate-500 hover:text-brand-700 flex items-center gap-1"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Portal</a>`;
+  if(!perfil){ el.innerHTML=portal; return; }
+  el.innerHTML = `<span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>${esc(perfil.nombre)}</span>${portal}
+    <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">Cerrar sesión</span></button>`;
+}
+function vSinAcceso(){
+  return `<div class="max-w-md mx-auto py-14"><div class="bg-white border border-slate-200 shadow-soft rounded-2xl p-8 text-center">
+    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4"><i data-lucide="lock" class="w-6 h-6"></i></div>
+    <h1 class="text-xl font-extrabold text-slate-900">Sin acceso a Personal</h1><p class="text-sm text-slate-500 mt-2">Tu usuario no tiene permiso en este módulo.</p>
+    <a href="../" class="inline-block mt-6 bg-brand-700 text-white font-semibold px-5 py-2.5 rounded-lg">Volver al portal</a></div></div>`;
+}
+function vTabs(){
+  const pend = solicitudes.filter(s=>!dispositivos.some(d=>d.id===s.id)).length;
+  const t=(id,txt,icon,badge)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center bg-amber-400 text-amber-950">${badge}</span>`:''}</button>`;
+  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1 no-print">${t('hoy','Hoy','sun')}${t('marcas','Marcas','list-checks')}${t('reporte','Reporte de horas','bar-chart-3')}${t('funcionarios','Funcionarios','users')}${t('sucursales','Sucursales','store')}${t('equipos','Equipos','monitor-smartphone',pend)}${t('importar','Importar','file-spreadsheet')}</nav>`;
+}
+
+/* ---------- HOY ---------- */
+function vHoy(){
+  const k = hoyKey();
+  if(!funcionarios.length) return `<div class="bg-white border border-slate-200 rounded-2xl p-10 text-center"><h2 class="text-xl font-extrabold">Todavía no hay funcionarios</h2>
+    <p class="text-sm text-slate-500 mt-2">Importalos desde el Excel de MTCLOCK.</p><button onclick="irTab('importar')" class="mt-5 bg-brand-700 text-white font-semibold px-5 py-2.5 rounded-xl">Importar</button></div>`;
+  const porF = {}; marcasHoy.forEach(m=>{ (porF[m.funcionario] ||= []).push(m); });
+  const filas = funcionarios.filter(f=>f.activo!==false).map(f=>({ f, a: analizarDia(f, k, jornadas(porF[f.id]||[])) }));
+  // salidas pendientes de días anteriores
+  const sinSalida = funcionarios.flatMap(f=> jornadas(porF[f.id]||[]).filter(j=>j.incompleta && j.fecha<k && j.entrada).map(j=>({ f, j })));
+  const adentro = filas.filter(x=>x.a.enCurso);
+  const tarde = filas.filter(x=>x.a.tarde!=null), faltan = filas.filter(x=>x.a.ausente), alertas = filas.filter(x=>x.a.otroLocal || x.a.lejos);
+  const grupos = {};
+  filas.forEach(x=>{
+    if(x.a.estado==='libre') return;
+    const marcaSuc = x.a.jornadas.length ? (x.a.jornadas[x.a.jornadas.length-1].entrada||x.a.jornadas[x.a.jornadas.length-1].salida).sucursalId : null;
+    const suc = marcaSuc || (x.a.prev && x.a.prev.sucursalId) || x.f.sucursalId || '';
+    (grupos[suc] ||= []).push(x);
+  });
+  const chip = (n,txt,c) => `<div class="bg-white border border-slate-200 rounded-2xl p-4"><div class="text-3xl font-extrabold num ${c}">${n}</div><div class="text-xs text-slate-500 font-semibold">${txt}</div></div>`;
+  const estadoTxt = x => {
+    const a=x.a, j=a.jornadas, ult=j[j.length-1];
+    if(a.enCurso) return `<span class="text-emerald-700 font-semibold">Trabajando desde ${hhmm(ult.entrada.d)}</span>${a.tarde!=null?` <span class="text-amber-700 font-semibold">· tarde ${tardeTxt(a.tarde)}</span>`:''}`;
+    if(a.estado==='ausente') return `<span class="text-rose-600 font-semibold">No marcó${a.prev?` (entraba ${a.prev.desde})`:''}</span>`;
+    if(a.estado==='pendiente') return `<span class="text-slate-400">Entra a las ${a.prev.desde}</span>`;
+    if(j.length) return `<span class="text-slate-600">Salió ${hhmm(ult.salida?ult.salida.d:null)} · ${durTxt(a.minutos)}</span>${a.tarde!=null?` <span class="text-amber-700 font-semibold">· llegó tarde ${tardeTxt(a.tarde)}</span>`:''}`;
+    return '';
+  };
+  const tarjetas = Object.keys(grupos).sort((a,b)=>sucNombre(a).localeCompare(sucNombre(b),'es')).map(s=>`
+    <div class="bg-white border border-slate-200 rounded-2xl p-4">
+      <div class="flex items-center justify-between mb-2"><div class="font-bold text-slate-900">${esc(sucNombre(s)||'Sin sucursal')}</div>
+        <div class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">${grupos[s].filter(x=>x.a.enCurso).length} trabajando</div></div>
+      <div class="divide-y divide-slate-100">${grupos[s].sort((a,b)=>a.f.nombre.localeCompare(b.f.nombre,'es')).map(x=>`
+        <div class="py-2 flex items-start justify-between gap-3 text-sm"><div class="min-w-0"><div class="font-medium text-slate-800">${esc(x.f.nombre)}</div><div class="text-xs">${estadoTxt(x)}</div></div>
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            ${x.a.estado==='extra'?'<span class="text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full">No le tocaba hoy</span>':''}
+            ${x.a.otroLocal?`<span class="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">Le tocaba ${esc(sucNombre(x.a.prev.sucursalId))}</span>`:''}
+            ${x.a.lejos?'<span class="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">Ubicación a revisar</span>':''}
+          </div></div>`).join('')}</div>
+    </div>`).join('');
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight capitalize">${fechaLarga(k)}</h1>
+      <p class="text-slate-500 text-sm mt-1">Tolerancia de llegada: <b>${config.tolerancia||0} min</b> · <button onclick="editarTolerancia()" class="text-brand-700 font-semibold underline">cambiar</button></p></div>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">${chip(adentro.length,'Trabajando ahora','text-emerald-600')}${chip(tarde.length,'Llegaron tarde','text-amber-600')}${chip(faltan.length,'No marcaron','text-rose-600')}${chip(alertas.length,'Alertas de lugar','text-slate-900')}</div>
+    ${sinSalida.length?`<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6"><div class="font-semibold text-amber-900 text-sm mb-1">Marcaron entrada y no la salida (${sinSalida.length})</div>
+      <div class="text-sm text-amber-900 space-y-0.5">${sinSalida.map(x=>`<div>${esc(x.f.nombre)} · entró el ${fechaCorta(x.j.fecha)} a las ${hhmm(x.j.entrada.d)} en ${esc(sucNombre(x.j.entrada.sucursalId))} · <button onclick="abrirMarcaManual('${esc(x.f.id)}','salida','${x.j.fecha}')" class="font-semibold underline">cargar salida</button></div>`).join('')}</div></div>`:''}
+    <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">${tarjetas || '<div class="text-sm text-slate-400">Nadie tiene horario hoy ni marcó todavía. Cargá los horarios en Funcionarios.</div>'}</div>`;
+}
+function editarTolerancia(){
+  modal('Tolerancia de llegada', `<form onsubmit="guardarTolerancia(event)" class="space-y-4"><p class="text-sm text-slate-600">Minutos de gracia después del horario de entrada. Pasados esos minutos, la llegada cuenta como tarde.</p>
+    <input class="field num" id="tol" inputmode="numeric" value="${config.tolerancia||0}"><button class="w-full bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Guardar</button></form>`);
+}
+async function guardarTolerancia(e){ e.preventDefault(); const v=parseInt($('tol').value,10); if(isNaN(v)||v<0) return;
+  try{ await db.collection('configPersonal').doc('general').set({ tolerancia:v }, { merge:true }); cerrarModal(); toast('Tolerancia guardada.'); }catch(err){ toast(motivoError(err),'err'); } }
+
+/* ---------- MARCAS ---------- */
+function asegurarRango(desde, hasta){
+  if(rango.desde===desde && rango.hasta===hasta && unsubRango) return;
+  rango = { desde, hasta }; if(unsubRango) unsubRango();
+  marcasRango = null;
+  unsubRango = db.collection('marcas').where('fecha','>=',sumarDias(desde,-1)).where('fecha','<=',hasta).onSnapshot(s=>{ marcasRango = s.docs.map(datosDoc); render(); }, e=>{ console.error(e); marcasRango=[]; render(); });
+}
+let filtroMarcas = { desde: hoyKey(), hasta: hoyKey() };
+function vMarcas(){
+  asegurarRango(filtroMarcas.desde, filtroMarcas.hasta);
+  const q = filtro.q.trim().toLowerCase();
+  const lista = (marcasRango||[]).filter(m=> m.fecha>=filtroMarcas.desde && m.fecha<=filtroMarcas.hasta)
+    .filter(m=> !filtro.sucursal || m.sucursalId===filtro.sucursal)
+    .filter(m=> !q || (m.funcionario+' '+(m.nombre||funNombre(m.funcionario))).toLowerCase().includes(q))
+    .map(m=>Object.assign({}, m, { d:aFecha(m.ts) })).sort((a,b)=>(b.d||0)-(a.d||0));
+  const filas = lista.map(m=>{
+    const f = funcionarios.find(x=>x.id===m.funcionario);
+    const prev = f ? horarioDe(f, m.fecha) : null;
+    const otro = prev && prev.sucursalId && prev.sucursalId!==m.sucursalId;
+    const lejos = m.ubic && (m.ubic.sinDatos || m.ubic.distancia > radioDe(m.sucursalId));
+    return `<tr class="border-t border-slate-100 ${m.anulada?'opacity-50 line-through':''}">
+      <td class="py-2 px-3 num whitespace-nowrap">${fechaCorta(m.fecha)} <b>${hhmm(m.d)}</b></td>
+      <td class="py-2 px-3"><div class="font-medium">${esc(m.nombre||funNombre(m.funcionario))}</div><div class="text-[11px] text-slate-400">N° ${esc(m.funcionario)}</div></td>
+      <td class="py-2 px-3"><span class="text-xs font-bold px-2 py-0.5 rounded-full ${m.tipo==='entrada'?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-700'}">${m.tipo==='entrada'?'Entrada':'Salida'}</span></td>
+      <td class="py-2 px-3">${esc(sucNombre(m.sucursalId))}</td>
+      <td class="py-2 px-3 text-xs">${m.origen==='manual'?`<span class="font-semibold text-brand-700">Manual</span><div class="text-slate-400">${esc(m.motivo||'')}</div>`:'Reloj'}
+        ${otro?`<div class="text-amber-700 font-semibold">Le tocaba ${esc(sucNombre(prev.sucursalId))}</div>`:''}
+        ${lejos?`<div class="text-rose-600 font-semibold">${m.ubic.sinDatos?'Sin ubicación':'A '+(m.ubic.distancia>=1000?(m.ubic.distancia/1000).toFixed(1)+' km':m.ubic.distancia+' m')+' del local'}</div>`:''}
+        ${m.anulada?`<div class="text-rose-600 no-underline">Anulada: ${esc(m.motivoAnulacion||'')}</div>`:''}</td>
+      <td class="py-2 px-3 text-right">${m.anulada?'':`<button onclick="anularMarca('${m.id}')" class="text-xs font-semibold text-slate-400 hover:text-rose-600">Anular</button>`}</td></tr>`;
+  }).join('');
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Marcas</h1><p class="text-slate-500 text-sm mt-1">Las marcas no se borran: se anulan con un motivo y queda registrado.</p></div>
+      <button onclick="abrirMarcaManual()" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Marca manual</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <input type="date" class="field !w-auto" value="${filtroMarcas.desde}" onchange="filtroMarcas.desde=this.value; if(filtroMarcas.hasta<this.value) filtroMarcas.hasta=this.value; render()">
+      <input type="date" class="field !w-auto" value="${filtroMarcas.hasta}" onchange="filtroMarcas.hasta=this.value; render()">
+      <select class="field !w-auto" onchange="filtro.sucursal=this.value; render()"><option value="">Todas las sucursales</option>${sucursales.map(s=>`<option value="${s.id}" ${filtro.sucursal===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select>
+      <input id="qMarcas" type="text" class="field flex-1 min-w-[180px]" placeholder="Buscar funcionario" value="${esc(filtro.q)}" oninput="filtro.q=this.value; render()">
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
+      ${marcasRango===null?'<div class="p-8 text-center text-slate-400 text-sm">Cargando…</div>': lista.length?`<table class="w-full text-sm min-w-[760px]"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2 px-3">Fecha y hora</th><th class="py-2 px-3">Funcionario</th><th class="py-2 px-3">Tipo</th><th class="py-2 px-3">Sucursal</th><th class="py-2 px-3">Detalle</th><th></th></tr></thead><tbody>${filas}</tbody></table>`:'<div class="p-8 text-center text-slate-400 text-sm">No hay marcas en ese período.</div>'}
+    </div>`;
+}
+function abrirMarcaManual(num, tipo, fecha){
+  const f = num ? funcionarios.find(x=>x.id===num) : null;
+  modal('Marca manual', `<form onsubmit="guardarMarcaManual(event)" class="space-y-4">
+    <div><label class="lbl" for="mmF">Funcionario</label><select class="field" id="mmF">${funcionarios.map(x=>`<option value="${esc(x.id)}" ${x.id===num?'selected':''}>${esc(x.nombre)} (N° ${esc(x.id)})</option>`).join('')}</select></div>
+    <div class="grid grid-cols-3 gap-3"><div><label class="lbl" for="mmT">Tipo</label><select class="field" id="mmT"><option value="entrada" ${tipo!=='salida'?'selected':''}>Entrada</option><option value="salida" ${tipo==='salida'?'selected':''}>Salida</option></select></div>
+      <div><label class="lbl" for="mmD">Fecha</label><input class="field" type="date" id="mmD" value="${fecha||hoyKey()}"></div>
+      <div><label class="lbl" for="mmH">Hora</label><input class="field" type="time" id="mmH" value=""></div></div>
+    <div><label class="lbl" for="mmS">Sucursal</label><select class="field" id="mmS">${sucursales.map(s=>`<option value="${s.id}" ${(f&&f.sucursalId)===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select></div>
+    <div><label class="lbl" for="mmM">Motivo <span class="font-normal text-slate-400">(obligatorio, queda registrado)</span></label><input class="field" id="mmM" placeholder="Ej.: Se olvidó de marcar la salida"></div>
+    <div id="mmErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div><button class="w-full bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Guardar marca</button></form>`);
+}
+async function guardarMarcaManual(e){
+  e.preventDefault();
+  const num=$('mmF').value, tipo=$('mmT').value, fecha=$('mmD').value, hora=$('mmH').value, suc=$('mmS').value, motivo=$('mmM').value.trim();
+  if(!fecha||!hora){ $('mmErr').textContent='Completá fecha y hora.'; return; }
+  if(!motivo){ $('mmErr').textContent='Poné el motivo.'; return; }
+  const [y,m,d]=fecha.split('-').map(Number), [hh,mm]=hora.split(':').map(Number);
+  const ts = firebase.firestore.Timestamp.fromDate(new Date(y,m-1,d,hh,mm));
+  try{
+    const ref = db.collection('marcas').doc();
+    const b = db.batch();
+    b.set(ref, { funcionario:num, nombre:funNombre(num), tipo, sucursalId:suc, origen:'manual', motivo, por: perfil.nombre||'', ts, fecha, creado: FV.serverTimestamp() });
+    b.set(db.collection('correcciones').doc(), { accion:'alta', marcaId:ref.id, funcionario:num, detalle:`${tipo} ${fecha} ${hora} en ${sucNombre(suc)}`, motivo, por: perfil.nombre||'', cuando: FV.serverTimestamp() });
+    await b.commit(); cerrarModal(); toast('Marca agregada.');
+  }catch(err){ console.error(err); $('mmErr').textContent=motivoError(err); }
+}
+function anularMarca(id){
+  modal('Anular marca', `<form onsubmit="confirmarAnulacion(event,'${id}')" class="space-y-4"><p class="text-sm text-slate-600">La marca no se borra: queda tachada y deja de contar en las horas.</p>
+    <div><label class="lbl" for="anM">Motivo</label><input class="field" id="anM" placeholder="Ej.: Marcó dos veces"></div><div id="anErr" class="text-sm text-rose-600"></div>
+    <button class="w-full bg-rose-600 text-white font-semibold py-2.5 rounded-xl">Anular</button></form>`);
+}
+async function confirmarAnulacion(e, id){
+  e.preventDefault(); const motivo=$('anM').value.trim(); if(!motivo){ $('anErr').textContent='Poné el motivo.'; return; }
+  const m = (marcasRango||[]).concat(marcasHoy).find(x=>x.id===id);
+  try{ const b=db.batch();
+    b.update(db.collection('marcas').doc(id), { anulada:true, motivoAnulacion:motivo, anuladaPor: perfil.nombre||'', anuladaEn: FV.serverTimestamp() });
+    b.set(db.collection('correcciones').doc(), { accion:'anulacion', marcaId:id, funcionario: m?m.funcionario:'', motivo, por: perfil.nombre||'', cuando: FV.serverTimestamp() });
+    await b.commit(); cerrarModal(); toast('Marca anulada.','info');
+  }catch(err){ $('anErr').textContent=motivoError(err); }
+}
+
+/* ---------- REPORTE ---------- */
+let filtroRep = { desde: sumarDias(hoyKey(), -(new Date().getDate()-1)), hasta: hoyKey(), sucursal:'' };
+function vReporte(){
+  asegurarRango(filtroRep.desde, filtroRep.hasta);
+  let cuerpo = '';
+  if(marcasRango===null) cuerpo = '<div class="p-8 text-center text-slate-400 text-sm">Cargando marcas…</div>';
+  else {
+    reporte = calcularReporte();
+    const filas = reporte.filas.map(r=>`<tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="verDetalle('${esc(r.f.id)}')">
+      <td class="py-2 px-3"><div class="font-medium">${esc(r.f.nombre)}</div><div class="text-[11px] text-slate-400">N° ${esc(r.f.id)} · ${esc(sucNombre(r.f.sucursalId))}</div></td>
+      <td class="py-2 px-3 text-right num">${r.dias}</td><td class="py-2 px-3 text-right num font-bold">${durTxt(r.minutos)}</td>
+      <td class="py-2 px-3 text-right num ${r.tardes?'text-amber-700 font-semibold':''}">${r.tardes}${r.tardes?` <span class="text-xs">(${r.minTarde} min)</span>`:''}</td>
+      <td class="py-2 px-3 text-right num ${r.ausencias?'text-rose-600 font-semibold':''}">${r.ausencias}</td>
+      <td class="py-2 px-3 text-right num ${r.incompletas?'text-rose-600 font-semibold':''}">${r.incompletas}</td>
+      <td class="py-2 px-3 text-right num ${r.otroLocal?'text-amber-700':''}">${r.otroLocal}</td></tr>`).join('');
+    cuerpo = `<table class="w-full text-sm min-w-[760px]"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2 px-3">Funcionario</th><th class="py-2 px-3 text-right">Días trabajados</th><th class="py-2 px-3 text-right">Horas</th><th class="py-2 px-3 text-right">Llegadas tarde</th><th class="py-2 px-3 text-right">Faltas</th><th class="py-2 px-3 text-right">Sin salida</th><th class="py-2 px-3 text-right">En otro local</th></tr></thead><tbody>${filas}</tbody>
+      <tfoot><tr class="border-t-2 border-slate-200 font-bold"><td class="py-2 px-3">Total</td><td class="py-2 px-3 text-right num">${reporte.filas.reduce((s,r)=>s+r.dias,0)}</td><td class="py-2 px-3 text-right num">${durTxt(reporte.filas.reduce((s,r)=>s+r.minutos,0))}</td><td class="py-2 px-3 text-right num">${reporte.filas.reduce((s,r)=>s+r.tardes,0)}</td><td class="py-2 px-3 text-right num">${reporte.filas.reduce((s,r)=>s+r.ausencias,0)}</td><td class="py-2 px-3 text-right num">${reporte.filas.reduce((s,r)=>s+r.incompletas,0)}</td><td class="py-2 px-3 text-right num">${reporte.filas.reduce((s,r)=>s+r.otroLocal,0)}</td></tr></tfoot></table>`;
+  }
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Reporte de horas</h1><p class="text-slate-500 text-sm mt-1">Tocá un funcionario para ver el detalle día por día.</p></div>
+      <button onclick="exportarExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${marcasRango===null?'disabled':''}><i data-lucide="download" class="w-4 h-4"></i>Excel</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4 items-center">
+      <input type="date" class="field !w-auto" value="${filtroRep.desde}" onchange="filtroRep.desde=this.value; if(filtroRep.hasta<this.value) filtroRep.hasta=this.value; render()">
+      <span class="text-slate-400">al</span><input type="date" class="field !w-auto" value="${filtroRep.hasta}" onchange="filtroRep.hasta=this.value; render()">
+      <select class="field !w-auto" onchange="filtroRep.sucursal=this.value; render()"><option value="">Todas las sucursales</option>${sucursales.map(s=>`<option value="${s.id}" ${filtroRep.sucursal===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select>
+      <div class="flex gap-1">${[['Este mes',()=>0],['Mes pasado',()=>1],['1ª quincena',()=>'q1'],['2ª quincena',()=>'q2']].map(([t],i)=>`<button onclick="periodoRapido(${i})" class="text-xs font-semibold border border-slate-200 bg-white rounded-lg px-2.5 py-2 hover:border-brand-400">${t}</button>`).join('')}</div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">${cuerpo}</div>`;
+}
+function periodoRapido(i){
+  const h = new Date(), y=h.getFullYear(), m=h.getMonth();
+  const k = (yy,mm,dd)=>hoyKey(new Date(yy,mm,dd));
+  if(i===0){ filtroRep.desde=k(y,m,1); filtroRep.hasta=hoyKey(); }
+  if(i===1){ filtroRep.desde=k(y,m-1,1); filtroRep.hasta=k(y,m,0); }
+  if(i===2){ filtroRep.desde=k(y,m,1); filtroRep.hasta=k(y,m,15); }
+  if(i===3){ filtroRep.desde=k(y,m,16); filtroRep.hasta=k(y,m+1,0); }
+  render();
+}
+function calcularReporte(){
+  const dias = []; for(let k=filtroRep.desde; k<=filtroRep.hasta && dias.length<93; k=sumarDias(k,1)) dias.push(k);
+  const porF = {}; (marcasRango||[]).forEach(m=>{ (porF[m.funcionario] ||= []).push(m); });
+  const filas = funcionarios.filter(f=> !filtroRep.sucursal || f.sucursalId===filtroRep.sucursal || (porF[f.id]||[]).some(m=>m.sucursalId===filtroRep.sucursal))
+    .map(f=>{
+      const js = jornadas(porF[f.id]||[]);
+      const detalle = dias.map(k=>analizarDia(f,k,js)).filter(a=>a.prev || a.jornadas.length);
+      return { f, detalle,
+        dias: detalle.filter(a=>a.jornadas.some(j=>j.entrada)).length,
+        minutos: detalle.reduce((s,a)=>s+a.minutos,0),
+        tardes: detalle.filter(a=>a.tarde!=null).length, minTarde: detalle.reduce((s,a)=>s+(a.tarde||0),0),
+        ausencias: detalle.filter(a=>a.ausente).length, incompletas: detalle.reduce((s,a)=>s+a.incompletas,0),
+        otroLocal: detalle.filter(a=>a.otroLocal).length };
+    }).filter(r=> f_activoOConDatos(r));
+  return { dias, filas };
+}
+function f_activoOConDatos(r){ return r.f.activo!==false || r.detalle.length; }
+function textoJornadas(a){ return a.jornadas.map(j=>`${j.entrada?hhmm(j.entrada.d):'¿?'}–${j.salida?hhmm(j.salida.d):(j.enCurso?'…':'¿?')}`).join(' / '); }
+function verDetalle(num){
+  const r = reporte && reporte.filas.find(x=>x.f.id===num); if(!r) return;
+  const filas = r.detalle.map(a=>`<tr class="border-t border-slate-100">
+    <td class="py-1.5 pr-2 whitespace-nowrap">${fechaCorta(a.k)}</td>
+    <td class="py-1.5 pr-2 text-xs text-slate-500">${a.prev?`${a.prev.desde}–${a.prev.hasta}<div>${esc(sucNombre(a.prev.sucursalId))}</div>`:'Libre'}</td>
+    <td class="py-1.5 pr-2 num">${textoJornadas(a)||'—'}</td>
+    <td class="py-1.5 pr-2 num text-right font-semibold">${a.minutos?durTxt(a.minutos):'—'}</td>
+    <td class="py-1.5 text-xs">${[a.ausente?'<span class="text-rose-600 font-semibold">Falta</span>':'', a.tarde!=null?`<span class="text-amber-700 font-semibold">Tarde ${tardeTxt(a.tarde)}</span>`:'', a.incompletas?'<span class="text-rose-600">Sin salida</span>':'', a.otroLocal?'<span class="text-amber-700">Otro local</span>':'', a.lejos?'<span class="text-rose-600">Ubicación</span>':'', a.estado==='extra'?'<span class="text-brand-700">Día no previsto</span>':''].filter(Boolean).join(' · ')}</td></tr>`).join('');
+  modal(esc(r.f.nombre)+' · '+fechaCorta(filtroRep.desde)+' al '+fechaCorta(filtroRep.hasta), `
+    <div class="grid grid-cols-4 gap-2 mb-4 text-center">${[['Horas',durTxt(r.minutos)],['Días',r.dias],['Tarde',r.tardes],['Faltas',r.ausencias]].map(([t,v])=>`<div class="bg-slate-50 rounded-xl p-2"><div class="font-extrabold num">${v}</div><div class="text-[11px] text-slate-500">${t}</div></div>`).join('')}</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-slate-400 uppercase"><th>Día</th><th>Previsto</th><th>Marcas</th><th class="text-right">Horas</th><th>Obs.</th></tr></thead><tbody>${filas||'<tr><td colspan="5" class="py-6 text-center text-slate-400">Sin datos en el período.</td></tr>'}</tbody></table></div>`, 'sm:max-w-3xl');
+}
+function exportarExcel(){
+  if(!reporte) return;
+  const resumen = reporte.filas.map(r=>({ 'N° funcionario': r.f.id, 'Nombre': r.f.nombre, 'Sucursal base': sucNombre(r.f.sucursalId), 'Días trabajados': r.dias,
+    'Horas (decimal)': Math.round(r.minutos/60*100)/100, 'Horas': durTxt(r.minutos), 'Llegadas tarde': r.tardes, 'Minutos tarde': r.minTarde, 'Faltas': r.ausencias, 'Sin salida': r.incompletas, 'En otro local': r.otroLocal }));
+  const detalle = reporte.filas.flatMap(r=> r.detalle.map(a=>({ 'N° funcionario': r.f.id, 'Nombre': r.f.nombre, 'Fecha': a.k, 'Día': DIAS[diaSemana(a.k)],
+    'Previsto': a.prev?`${a.prev.desde}-${a.prev.hasta}`:'Libre', 'Local previsto': a.prev?sucNombre(a.prev.sucursalId):'', 'Marcas': textoJornadas(a),
+    'Locales donde marcó': [...new Set(a.jornadas.flatMap(j=>[j.entrada,j.salida]).filter(Boolean).map(m=>sucNombre(m.sucursalId)))].join(', '),
+    'Horas (decimal)': Math.round(a.minutos/60*100)/100, 'Minutos tarde': a.tarde||0, 'Falta': a.ausente?'Sí':'', 'Sin salida': a.incompletas?'Sí':'', 'Otro local': a.otroLocal?'Sí':'' })));
+  const wb = XLSX.utils.book_new();
+  const h1 = XLSX.utils.json_to_sheet(resumen), h2 = XLSX.utils.json_to_sheet(detalle);
+  h1['!cols'] = [{wch:12},{wch:28},{wch:18},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:10},{wch:10}];
+  h2['!cols'] = [{wch:12},{wch:28},{wch:11},{wch:10},{wch:13},{wch:18},{wch:26},{wch:22},{wch:10},{wch:10},{wch:6},{wch:8},{wch:8}];
+  XLSX.utils.book_append_sheet(wb, h1, 'Resumen'); XLSX.utils.book_append_sheet(wb, h2, 'Detalle por día');
+  XLSX.writeFile(wb, `horas_${filtroRep.desde}_al_${filtroRep.hasta}.xlsx`);
+}
+
+/* ---------- FUNCIONARIOS ---------- */
+function resumenHorario(f){
+  const h = f.horario||{}; const dias = [0,1,2,3,4,5,6].filter(i=>h[i] && h[i].desde);
+  if(!dias.length) return '<span class="text-amber-700">Sin horario cargado</span>';
+  const locales = [...new Set(dias.map(i=>h[i].sucursalId))];
+  return dias.map(i=>DIAS_C[i]).join(' ') + (locales.length>1 ? ` · <span class="text-brand-700 font-semibold">${locales.length} locales</span>` : ` · ${esc(sucNombre(locales[0]))}`);
+}
+function vFuncionarios(){
+  const q = filtro.q.trim().toLowerCase();
+  const lista = funcionarios.filter(f=> !filtro.sucursal || f.sucursalId===filtro.sucursal).filter(f=> !q || (f.id+' '+f.nombre+' '+(f.ci||'')).toLowerCase().includes(q));
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Funcionarios</h1><p class="text-slate-500 text-sm mt-1">${funcionarios.filter(f=>f.activo!==false).length} activos · ${funcionarios.filter(f=>!f.pinV).length} sin PIN</p></div>
+      <button onclick="abrirFuncionario(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="user-plus" class="w-4 h-4"></i>Funcionario</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <input id="qFun" type="text" class="field flex-1 min-w-[200px]" placeholder="Buscar por número, nombre o CI" value="${esc(filtro.q)}" oninput="filtro.q=this.value; render()">
+      <select class="field !w-auto" onchange="filtro.sucursal=this.value; render()"><option value="">Todas las sucursales</option>${sucursales.map(s=>`<option value="${s.id}" ${filtro.sucursal===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+      ${lista.map(f=>`<button onclick="abrirFuncionario('${esc(f.id)}')" class="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 ${f.activo===false?'opacity-50':''}">
+        <div class="w-12 text-xs font-bold text-slate-500 num">${esc(f.id)}</div>
+        <div class="min-w-0 flex-1"><div class="font-semibold text-slate-900">${esc(f.nombre)}${f.activo===false?' <span class="text-xs font-semibold text-slate-400">(inactivo)</span>':''}</div>
+          <div class="text-xs text-slate-500">${esc(sucNombre(f.sucursalId))} · ${resumenHorario(f)}</div></div>
+        ${f.pinV?'':'<span class="text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">Sin PIN</span>'}
+        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i></button>`).join('') || '<div class="p-8 text-center text-slate-400 text-sm">Sin resultados.</div>'}
+    </div>`;
+}
+let edFun = null;
+function opcionesSucursal(sel){ return `<option value="">—</option>` + sucursales.map(s=>`<option value="${s.id}" ${s.id===sel?'selected':''}>${esc(s.nombre)}</option>`).join(''); }
+function abrirFuncionario(id){
+  const f = id ? funcionarios.find(x=>x.id===id) : null;
+  edFun = { id, horario: JSON.parse(JSON.stringify((f&&f.horario)||{})), excepciones: JSON.parse(JSON.stringify((f&&f.excepciones)||{})), pinNuevo:null };
+  modal(f ? esc(f.nombre) : 'Nuevo funcionario', `
+    <form onsubmit="guardarFuncionario(event)" class="space-y-5" novalidate>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="lbl" for="fNum">N° funcionario</label><input class="field num" id="fNum" value="${esc(f?f.id:'')}" ${f?'disabled':''}></div>
+        <div><label class="lbl" for="fCi">CI</label><input class="field num" id="fCi" value="${esc(f?f.ci:'')}"></div>
+        <div><label class="lbl" for="fSuc">Sucursal base</label><select class="field" id="fSuc">${opcionesSucursal(f?f.sucursalId:'')}</select></div>
+      </div>
+      <div><label class="lbl" for="fNom">Nombre</label><input class="field" id="fNom" value="${esc(f?f.nombre:'')}"></div>
+      <div>
+        <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm">Horario semanal</span>
+          <button type="button" onclick="copiarLunes()" class="text-xs font-semibold text-brand-700">Copiar el lunes a lunes–viernes</button></div>
+        <div id="gridHorario" class="space-y-1.5"></div>
+        <div class="text-xs text-slate-400 mt-2">Cada día puede tener su local y su horario. Dejá un día en "Libre" si no trabaja.</div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm">Cambios por fecha</span>
+          <button type="button" onclick="agregarExcepcion()" class="text-xs font-semibold text-brand-700">+ Agregar cambio</button></div>
+        <div id="listaEx" class="space-y-1.5"></div>
+        <div class="text-xs text-slate-400 mt-1">Para un día puntual: un reemplazo en otro local, un franco, una licencia. No cambia el horario habitual.</div>
+      </div>
+      <div class="bg-slate-50 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+        <div><div class="font-semibold text-sm">PIN para marcar</div><div id="pinInfo" class="text-xs text-slate-500">${f&&f.pinV?'Tiene PIN asignado. Por seguridad no se muestra.':'Todavía no tiene PIN.'}</div></div>
+        <button type="button" onclick="generarPin()" class="border border-slate-300 hover:border-brand-400 bg-white rounded-lg px-3 py-2 text-sm font-semibold">${f&&f.pinV?'Generar PIN nuevo':'Generar PIN'}</button>
+      </div>
+      <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer"><input type="checkbox" id="fAct" class="mt-1" ${!f||f.activo!==false?'checked':''}>
+        <span><span class="font-semibold text-sm">Activo</span><span class="block text-xs text-slate-500">Si lo desmarcás, ya no puede marcar en ningún reloj. Su historial se conserva.</span></span></label>
+      <div id="fErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <button id="fBtn" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Guardar</button>
+    </form>`, 'sm:max-w-2xl');
+  pintarHorario(); pintarExcepciones();
+}
+function leerHorario(){
+  for(let i=0;i<7;i++){
+    if(!$('hS'+i)) continue;   // el día estaba libre: no hay campos que leer
+    edFun.horario[i] = { sucursalId:$('hS'+i).value, desde:$('hD'+i).value, hasta:$('hH'+i).value };
+  }
+}
+function pintarHorario(){
+  $('gridHorario').innerHTML = DIAS.map((d,i)=>{ const h = edFun.horario[i]; const libre = !h || !h.desde;
+    return `<div class="grid grid-cols-[76px_70px_1fr_88px_88px] gap-1.5 items-center text-sm">
+      <span class="font-semibold">${d}</span>
+      <label class="text-xs flex items-center gap-1"><input type="checkbox" id="hL${i}" ${libre?'checked':''} onchange="cambiarLibre(${i}, this.checked)">Libre</label>
+      ${libre?'<span class="col-span-3 text-xs text-slate-400">—</span>':`<select class="field !py-1.5 !px-2 text-xs" id="hS${i}">${opcionesSucursal(h.sucursalId)}</select>
+        <input class="field !py-1.5 !px-2 num" type="time" id="hD${i}" value="${h.desde||''}"><input class="field !py-1.5 !px-2 num" type="time" id="hH${i}" value="${h.hasta||''}">`}
+    </div>`; }).join('');
+}
+function cambiarLibre(i, libre){
+  leerHorario();
+  if(libre) edFun.horario[i] = null;
+  else { const ref = [0,1,2,3,4,5,6].map(x=>edFun.horario[x]).find(Boolean); edFun.horario[i] = ref ? Object.assign({}, ref) : { sucursalId:$('fSuc').value, desde:'09:00', hasta:'17:00' }; }
+  pintarHorario();
+}
+function copiarLunes(){ leerHorario(); const l = edFun.horario[0]; if(!l){ toast('Primero cargá el lunes.','info'); return; } for(let i=1;i<5;i++) edFun.horario[i] = Object.assign({}, l); pintarHorario(); }
+function pintarExcepciones(){
+  const ks = Object.keys(edFun.excepciones).sort();
+  $('listaEx').innerHTML = ks.length ? ks.map(k=>{ const e=edFun.excepciones[k];
+    return `<div class="flex items-center justify-between gap-2 text-sm bg-slate-50 rounded-lg px-3 py-2"><span><b>${fechaCorta(k)}</b> · ${e.libre?'Libre':`${esc(sucNombre(e.sucursalId))} ${e.desde}–${e.hasta}`}${e.nota?` · <span class="text-slate-500">${esc(e.nota)}</span>`:''}</span>
+      <button type="button" onclick="delete edFun.excepciones['${k}']; pintarExcepciones()" class="text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button></div>`; }).join('') : '<div class="text-xs text-slate-400">Sin cambios cargados.</div>';
+  iconos();
+}
+function agregarExcepcion(){
+  const cont = $('listaEx');
+  cont.insertAdjacentHTML('beforeend', `<div id="exNueva" class="grid grid-cols-2 sm:grid-cols-6 gap-1.5 items-end bg-brand-50 rounded-lg p-2">
+    <input class="field !py-1.5 text-xs" type="date" id="exF" value="${hoyKey()}">
+    <select class="field !py-1.5 text-xs" id="exT" onchange="document.getElementById('exHor').classList.toggle('hidden', this.value==='libre')"><option value="otro">Trabaja</option><option value="libre">Libre</option></select>
+    <div id="exHor" class="contents"><select class="field !py-1.5 text-xs" id="exS">${opcionesSucursal($('fSuc').value)}</select><input class="field !py-1.5 text-xs" type="time" id="exD" value="09:00"><input class="field !py-1.5 text-xs" type="time" id="exH" value="17:00"></div>
+    <input class="field !py-1.5 text-xs col-span-2 sm:col-span-5" id="exN" placeholder="Nota (opcional)">
+    <button type="button" onclick="confirmarExcepcion()" class="bg-brand-700 text-white text-xs font-semibold rounded-lg py-2">Agregar</button></div>`);
+}
+function confirmarExcepcion(){
+  const k=$('exF').value; if(!k) return;
+  edFun.excepciones[k] = $('exT').value==='libre' ? { libre:true, nota:$('exN').value.trim() } : { sucursalId:$('exS').value, desde:$('exD').value, hasta:$('exH').value, nota:$('exN').value.trim() };
+  pintarExcepciones();
+}
+function generarPin(){
+  edFun.pinNuevo = pinAlAzar();
+  $('pinInfo').innerHTML = `PIN nuevo: <b class="text-2xl text-slate-900 num tracking-widest">${edFun.pinNuevo}</b><br><span class="text-amber-700">Anotalo y dáselo al funcionario: después de guardar no se vuelve a mostrar.</span>`;
+}
+async function guardarFuncionario(e){
+  e.preventDefault(); leerHorario();
+  const num = edFun.id || $('fNum').value.trim(), nombre = $('fNom').value.trim().toUpperCase();
+  const err = t=>{ $('fErr').textContent=t; };
+  if(!num || /[\/\s]/.test(num)) return err('Poné el número de funcionario (sin espacios).');
+  if(!edFun.id && funcionarios.some(f=>f.id===num)) return err('Ya existe un funcionario con ese número.');
+  if(!nombre) return err('Poné el nombre.');
+  for(let i=0;i<7;i++){ const h=edFun.horario[i]; if(h && (!h.desde||!h.hasta||!h.sucursalId)) return err(`Completá el horario del ${DIAS[i].toLowerCase()} o marcalo libre.`); }
+  const horario = {}; for(let i=0;i<7;i++) if(edFun.horario[i]) horario[i]=edFun.horario[i];
+  const activo = $('fAct').checked;
+  const datos = { numero:num, nombre, ci:$('fCi').value.trim(), sucursalId:$('fSuc').value||null, activo, horario, excepciones: edFun.excepciones, actualizado: FV.serverTimestamp() };
+  if(!edFun.id) datos.creado = FV.serverTimestamp();
+  if(edFun.pinNuevo) datos.pinV = Date.now();
+  const btn=$('fBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const b = db.batch();
+    b.set(db.collection('funcionarios').doc(num), datos, { merge:true });
+    b.set(db.collection('tarjetas').doc(num), { nombre, activo });
+    if(edFun.pinNuevo) b.set(db.collection('pins').doc(num), { hash: await hashPin(num, edFun.pinNuevo), activo, actualizado: FV.serverTimestamp() });
+    else b.set(db.collection('pins').doc(num), { activo }, { merge:true });
+    await b.commit();
+    cerrarModal(); toast(edFun.pinNuevo ? `Guardado. PIN de ${nombre}: ${edFun.pinNuevo}` : 'Funcionario guardado.');
+  }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Guardar'; }
+}
+
+/* ---------- SUCURSALES ---------- */
+function vSucursales(){
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Sucursales</h1><p class="text-slate-500 text-sm mt-1 max-w-2xl">La ubicación solo se usa para los relojes que son celulares: si alguien marca lejos del local, queda una alerta para revisar.</p></div>
+      <button onclick="abrirSucursal(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Sucursal</button>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${sucursales.map(s=>{
+      const nF = funcionarios.filter(f=>f.sucursalId===s.id && f.activo!==false).length, nE = dispositivos.filter(d=>d.sucursalId===s.id && d.activo).length;
+      return `<button onclick="abrirSucursal('${s.id}')" class="text-left bg-white border border-slate-200 rounded-2xl p-4 hover:border-brand-400">
+        <div class="font-bold text-slate-900">${esc(s.nombre)}</div>
+        <div class="text-xs text-slate-500 mt-1">${nF} funcionarios · ${nE} equipo${nE===1?'':'s'} de reloj</div>
+        <div class="text-xs mt-1 ${s.lat!=null?'text-emerald-700':'text-slate-400'}">${s.lat!=null?`Ubicación cargada · radio ${s.radio||300} m`:'Sin ubicación'}</div></button>`; }).join('') || '<div class="text-sm text-slate-400">Sin sucursales. Importalas desde MTCLOCK.</div>'}</div>`;
+}
+function abrirSucursal(id){
+  const s = id ? sucursales.find(x=>x.id===id) : null;
+  modal(s?esc(s.nombre):'Nueva sucursal', `<form onsubmit="guardarSucursal(event, ${s?`'${s.id}'`:'null'})" class="space-y-4">
+    <div><label class="lbl" for="sNom">Nombre</label><input class="field" id="sNom" value="${esc(s?s.nombre:'')}"></div>
+    <div class="grid grid-cols-3 gap-3"><div><label class="lbl" for="sLat">Latitud</label><input class="field num" id="sLat" value="${s&&s.lat!=null?s.lat:''}" placeholder="-34.90"></div>
+      <div><label class="lbl" for="sLng">Longitud</label><input class="field num" id="sLng" value="${s&&s.lng!=null?s.lng:''}" placeholder="-56.16"></div>
+      <div><label class="lbl" for="sRad">Radio (m)</label><input class="field num" id="sRad" value="${s&&s.radio||300}"></div></div>
+    <div class="flex flex-wrap gap-3 text-sm"><button type="button" onclick="usarMiUbicacion()" class="font-semibold text-brand-700 inline-flex items-center gap-1"><i data-lucide="locate-fixed" class="w-4 h-4"></i>Usar mi ubicación actual</button>
+      <span class="text-slate-400">o pegá las coordenadas de Google Maps (clic derecho sobre el local → copiar)</span></div>
+    <div id="sErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button class="w-full bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Guardar</button></form>`);
+}
+function usarMiUbicacion(){
+  if(!navigator.geolocation){ $('sErr').textContent='Este navegador no da ubicación.'; return; }
+  navigator.geolocation.getCurrentPosition(p=>{ $('sLat').value=p.coords.latitude.toFixed(6); $('sLng').value=p.coords.longitude.toFixed(6); }, ()=>{ $('sErr').textContent='No se pudo obtener la ubicación.'; }, { enableHighAccuracy:true, timeout:10000 });
+}
+async function guardarSucursal(e, id){
+  e.preventDefault();
+  const nombre = $('sNom').value.trim().toUpperCase(); if(!nombre){ $('sErr').textContent='Poné el nombre.'; return; }
+  // Permite pegar "lat, lng" juntos en el primer campo
+  let lat = $('sLat').value.trim(), lng = $('sLng').value.trim();
+  if(lat.includes(',') && !lng){ [lat,lng] = lat.split(',').map(x=>x.trim()); }
+  const datos = { nombre, radio: parseInt($('sRad').value,10)||300, lat: lat?Number(lat):null, lng: lng?Number(lng):null };
+  if((datos.lat!=null && isNaN(datos.lat)) || (datos.lng!=null && isNaN(datos.lng))){ $('sErr').textContent='Las coordenadas no son válidas.'; return; }
+  try{ await db.collection('sucursales').doc(id || slug(nombre)).set(datos, { merge:true }); cerrarModal(); toast('Sucursal guardada.'); }catch(err){ $('sErr').textContent=motivoError(err); }
+}
+
+/* ---------- EQUIPOS (relojes) ---------- */
+function urlReloj(){ return location.origin + location.pathname.replace(/personal\/(index\.html)?$/, 'reloj/'); }
+function vEquipos(){
+  const pend = solicitudes.filter(s=>!dispositivos.some(d=>d.id===s.id)).sort((a,b)=>(aFecha(b.creado)||0)-(aFecha(a.creado)||0));
+  const visto = d => { const v=aFecha(d.visto); if(!v) return 'Nunca'; const h=(Date.now()-v)/3600000; return h<1?'Hace menos de 1 hora': h<24?`Hace ${Math.floor(h)} h`:`Hace ${Math.floor(h/24)} días`; };
+  return `
+    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Equipos de reloj</h1>
+    <p class="text-slate-500 text-sm mt-1 mb-5 max-w-3xl">Solo se puede marcar desde equipos activados acá. En la PC o celular del local abrí <a href="${urlReloj()}" target="_blank" class="font-semibold text-brand-700 underline break-all">${urlReloj()}</a>: va a mostrar un código de 6 números para activarlo.</p>
+    ${pend.length?`<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Esperando activación (${pend.length})</h2>
+      <div class="grid sm:grid-cols-2 gap-3 mb-8">${pend.map(s=>`<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+        <div><div class="num text-2xl font-black tracking-widest text-amber-900">${esc(s.codigo.slice(0,3))} ${esc(s.codigo.slice(3))}</div><div class="text-xs text-amber-800">${s.celular?'Celular':'Computadora'} · pedido ${aFecha(s.creado)?aFecha(s.creado).toLocaleString('es-UY',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):''}</div></div>
+        <div class="flex gap-2"><button onclick="abrirActivar('${s.id}')" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-3 py-2 rounded-lg text-sm">Activar</button>
+          <button onclick="descartarSolicitud('${s.id}')" class="text-amber-800 text-sm font-semibold px-2">Descartar</button></div></div>`).join('')}</div>`:''}
+    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Equipos activados (${dispositivos.length})</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${dispositivos.map(d=>`<div class="bg-white border border-slate-200 rounded-2xl p-4 ${d.activo?'':'opacity-60'}">
+      <div class="flex items-start justify-between gap-2"><div><div class="font-bold text-slate-900">${esc(d.nombre||'Equipo')}</div><div class="text-xs text-slate-500">${esc(sucNombre(d.sucursalId))} · ${d.tipo==='celular'?'Celular (con ubicación)':'Computadora'}</div></div>
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${d.activo?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}">${d.activo?'Activo':'Desactivado'}</span></div>
+      <div class="text-xs text-slate-400 mt-2">Último uso: ${visto(d)}</div>
+      <div class="flex gap-3 mt-3 text-sm font-semibold"><button onclick="abrirActivar('${d.id}')" class="text-brand-700">Editar</button>
+        <button onclick="toggleEquipo('${d.id}', ${!d.activo})" class="${d.activo?'text-rose-600':'text-emerald-700'}">${d.activo?'Desactivar':'Activar'}</button></div></div>`).join('') || '<div class="text-sm text-slate-400">Todavía no hay equipos activados.</div>'}</div>`;
+}
+function abrirActivar(uid){
+  const d = dispositivos.find(x=>x.id===uid), s = solicitudes.find(x=>x.id===uid);
+  const tipo = d ? d.tipo : (s && s.celular ? 'celular' : 'pc');
+  modal(d?'Editar equipo':'Activar equipo', `<form onsubmit="guardarEquipo(event,'${uid}')" class="space-y-4">
+    ${s&&!d?`<div class="text-sm text-slate-600">Código <b class="num">${esc(s.codigo)}</b>. Verificá que sea el que muestra la pantalla del local.</div>`:''}
+    <div><label class="lbl" for="eSuc">Sucursal</label><select class="field" id="eSuc">${opcionesSucursal(d?d.sucursalId:'')}</select></div>
+    <div><label class="lbl" for="eNom">Nombre del equipo</label><input class="field" id="eNom" value="${esc(d?d.nombre:'')}" placeholder="Ej.: PC caja Costa Urbana"></div>
+    <div><span class="lbl">Tipo</span><div class="grid grid-cols-2 gap-2">
+      <label class="border rounded-lg px-3 py-2 text-sm cursor-pointer has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50"><input type="radio" name="eTipo" value="pc" ${tipo!=='celular'?'checked':''}> Computadora</label>
+      <label class="border rounded-lg px-3 py-2 text-sm cursor-pointer has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50"><input type="radio" name="eTipo" value="celular" ${tipo==='celular'?'checked':''}> Celular <span class="text-xs text-slate-400">(pide ubicación)</span></label></div></div>
+    <div id="eErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button class="w-full bg-brand-700 text-white font-semibold py-2.5 rounded-xl">${d?'Guardar':'Activar'}</button></form>`);
+}
+async function guardarEquipo(e, uid){
+  e.preventDefault();
+  const suc=$('eSuc').value, nombre=$('eNom').value.trim(), tipo=(document.querySelector('input[name=eTipo]:checked')||{}).value||'pc';
+  if(!suc){ $('eErr').textContent='Elegí la sucursal.'; return; }
+  const existe = dispositivos.find(x=>x.id===uid);
+  try{ const b=db.batch();
+    b.set(db.collection('dispositivos').doc(uid), Object.assign({ sucursalId:suc, nombre: nombre||('Reloj '+sucNombre(suc)), tipo, activo: existe?existe.activo:true }, existe?{}:{ creado: FV.serverTimestamp(), activadoPor: perfil.nombre||'' }), { merge:true });
+    if(!existe) b.delete(db.collection('solicitudesEquipo').doc(uid));
+    await b.commit(); cerrarModal(); toast(existe?'Equipo actualizado.':'Equipo activado. La pantalla del local ya debería mostrar el reloj.');
+  }catch(err){ $('eErr').textContent=motivoError(err); }
+}
+async function toggleEquipo(uid, activo){ try{ await db.collection('dispositivos').doc(uid).update({ activo }); toast(activo?'Equipo activado.':'Equipo desactivado: ya no puede marcar.','info'); }catch(err){ toast(motivoError(err),'err'); } }
+async function descartarSolicitud(uid){ if(!confirm('¿Descartar este pedido de activación?')) return; try{ await db.collection('solicitudesEquipo').doc(uid).delete(); }catch(err){ toast(motivoError(err),'err'); } }
+
+/* ---------- IMPORTAR DESDE MTCLOCK ---------- */
+function vImportar(){
+  const r = importacion;
+  return `<div class="max-w-3xl">
+    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Importar desde MTCLOCK</h1>
+    <p class="text-slate-500 text-sm mt-1 mb-6">Elegí el Excel con los funcionarios y las sucursales: el que armaste copiando las tablas, o el que genera el script. Se lee en tu computadora y se carga directo en el portal.</p>
+    ${r && r.pines ? vPinesGenerados(r) : `
+    <label class="block border-2 border-dashed border-slate-300 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer bg-white">
+      <i data-lucide="file-spreadsheet" class="w-8 h-8 text-slate-400 mx-auto mb-2"></i><div class="font-semibold">Elegir el Excel</div>
+      <input type="file" accept=".xls,.xlsx" class="hidden" onchange="leerImportacion(this.files[0])"></label>
+    ${r ? vResumenImportacion(r) : ''}`}
+  </div>`;
+}
+const normT = s => String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+async function leerImportacion(file){
+  if(!file) return;
+  const wb = XLSX.read(await file.arrayBuffer(), { type:'array' });
+  const sucs = [], emps = [];
+  wb.SheetNames.forEach(n=>{
+    const filas = XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, raw:false, defval:'' });
+    for(let i=0;i<Math.min(30,filas.length);i++){
+      const h = filas[i].map(normT);
+      const iNum = h.findIndex(x=>x==='NUMERO FUNCIONARIO' || x==='NUMERO_FUNCIONARIO');
+      const iCi = h.indexOf('CI'), iNom = h.indexOf('NOMBRE');
+      if(iNum>=0 && iNom>=0){
+        const iSuc = h.findIndex(x=>x==='SUCURSAL');
+        filas.slice(i+1).forEach(f=>{ const num=String(f[iNum]||'').trim(); if(!num || !/^[0-9A-Za-z\-]+$/.test(num)) return;
+          emps.push({ numero:num, ci: iCi>=0?String(f[iCi]||'').trim():'', nombre: String(f[iNom]||'').replace(/\s+/g,' ').trim().toUpperCase(), sucursal: iSuc>=0?normT(f[iSuc]):'' }); });
+        break;
+      }
+      const iId = h.indexOf('ID');
+      if(iId>=0 && iNom>=0 && iNum<0 && !h.includes('EMPLEADO_NUMERO')){
+        filas.slice(i+1).forEach(f=>{ const id=String(f[iId]||'').trim(), nom=normT(f[iNom]); if(!id || !/^\d+$/.test(id) || !nom) return; sucs.push({ id, nombre: String(f[iNom]).replace(/\s+/g,' ').trim().toUpperCase() }); });
+        break;
+      }
+    }
+  });
+  importacion = { sucs, emps, generarPines:true };
+  render();
+}
+function vResumenImportacion(r){
+  const nombresSuc = new Set(r.sucs.map(s=>normT(s.nombre)));
+  const sinSuc = r.emps.filter(e=>!e.sucursal || e.sucursal==='-' || !nombresSuc.has(e.sucursal));
+  const existentes = r.emps.filter(e=>funcionarios.some(f=>f.id===e.numero)).length;
+  return `<div class="mt-6 space-y-4">
+    <div class="grid grid-cols-2 gap-3"><div class="bg-white border border-slate-200 rounded-xl p-4"><div class="text-3xl font-extrabold num">${r.sucs.length}</div><div class="text-xs text-slate-500">sucursales</div></div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4"><div class="text-3xl font-extrabold num">${r.emps.length}</div><div class="text-xs text-slate-500">funcionarios</div></div></div>
+    ${!r.sucs.length||!r.emps.length?`<div class="text-sm text-rose-700 bg-rose-50 rounded-xl p-3">No encontré ${!r.sucs.length?'la tabla de sucursales':''}${!r.sucs.length&&!r.emps.length?' ni ':''}${!r.emps.length?'la tabla de empleados':''}. Revisá que el Excel tenga los encabezados como en MTCLOCK.</div>`:''}
+    ${sinSuc.length?`<div class="text-sm bg-amber-50 text-amber-900 rounded-xl p-3"><b>${sinSuc.length}</b> funcionarios quedan sin sucursal base (en MTCLOCK figuraban con "-" o con una sucursal que no está en la lista): ${sinSuc.map(e=>esc(e.nombre)).join(', ')}. Se la asignás después.</div>`:''}
+    ${existentes?`<div class="text-sm bg-brand-50 rounded-xl p-3">${existentes} ya existen en el portal: se actualiza su nombre, CI y sucursal. Horarios y PIN se mantienen.</div>`:''}
+    <label class="flex items-start gap-3 bg-white border border-slate-200 rounded-xl p-3 cursor-pointer"><input type="checkbox" class="mt-1" ${r.generarPines?'checked':''} onchange="importacion.generarPines=this.checked">
+      <span><span class="font-semibold text-sm">Generar un PIN para cada funcionario que no tenga</span><span class="block text-xs text-slate-500">Al terminar te muestro la lista para imprimir y entregar. Después no se vuelve a mostrar.</span></span></label>
+    <button id="btnImp" onclick="importarMtclock()" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-3 rounded-xl" ${!r.emps.length?'disabled':''}>Importar</button></div>`;
+}
+async function importarMtclock(){
+  const r = importacion, btn=$('btnImp'); btn.disabled=true; btn.textContent='Importando…';
+  try{
+    const sucIdPorNombre = {};
+    sucursales.forEach(s=> sucIdPorNombre[normT(s.nombre)] = s.id);
+    const ops = [];
+    r.sucs.forEach(s=>{ const id = sucIdPorNombre[normT(s.nombre)] || s.id; sucIdPorNombre[normT(s.nombre)] = id;
+      ops.push(b=>b.set(db.collection('sucursales').doc(id), { nombre:s.nombre, mtclockId:s.id }, { merge:true })); });
+    const pines = [];
+    for(const e of r.emps){
+      const ya = funcionarios.find(f=>f.id===e.numero);
+      const sucId = sucIdPorNombre[e.sucursal] || (ya?ya.sucursalId:null) || null;
+      const datos = { numero:e.numero, nombre:e.nombre, ci:e.ci, sucursalId:sucId, actualizado: FV.serverTimestamp() };
+      if(!ya){ Object.assign(datos, { activo:true, horario:{}, excepciones:{}, creado: FV.serverTimestamp() }); }
+      let pin = null;
+      if(r.generarPines && !(ya && ya.pinV)){ pin = pinAlAzar(); datos.pinV = Date.now(); pines.push({ numero:e.numero, nombre:e.nombre, sucursal: sucId ? (r.sucs.find(s=>sucIdPorNombre[normT(s.nombre)]===sucId)||{}).nombre || '' : '', pin }); }
+      const hash = pin ? await hashPin(e.numero, pin) : null;
+      const activo = ya ? ya.activo!==false : true;
+      ops.push(b=>{ b.set(db.collection('funcionarios').doc(e.numero), datos, { merge:true });
+        b.set(db.collection('tarjetas').doc(e.numero), { nombre:e.nombre, activo });
+        if(hash) b.set(db.collection('pins').doc(e.numero), { hash, activo, actualizado: FV.serverTimestamp() }); });
+    }
+    for(let i=0;i<ops.length;i+=100){ const b=db.batch(); ops.slice(i,i+100).forEach(fn=>fn(b)); await b.commit(); }
+    importacion = { pines: pines.sort((a,b)=>(a.sucursal||'').localeCompare(b.sucursal||'','es') || a.nombre.localeCompare(b.nombre,'es')) };
+    toast('Importación terminada.'); render();
+  }catch(e){ console.error(e); toast(motivoError(e),'err'); btn.disabled=false; btn.textContent='Reintentar'; }
+}
+function vPinesGenerados(r){
+  if(!r.pines.length) return `<div class="bg-emerald-50 rounded-2xl p-6 text-emerald-900 font-semibold">Importación terminada. No se generaron PINs nuevos.</div>`;
+  return `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 no-print text-sm text-amber-900"><b>Guardá o imprimí esta lista ahora.</b> Por seguridad, los PIN no se vuelven a mostrar: si alguien lo pierde, le generás uno nuevo desde su ficha.</div>
+    <div class="flex gap-2 mb-4 no-print"><button onclick="window.print()" class="bg-slate-900 text-white font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>
+      <button onclick="descargarPines()" class="border border-slate-300 font-semibold px-4 py-2 rounded-xl">Descargar Excel</button>
+      <button onclick="importacion=null; irTab('funcionarios')" class="text-slate-500 font-semibold px-3">Ya los guardé</button></div>
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500 bg-slate-50"><th class="py-2 px-3">Sucursal</th><th class="py-2 px-3">N°</th><th class="py-2 px-3">Nombre</th><th class="py-2 px-3">PIN</th></tr></thead>
+      <tbody>${r.pines.map(p=>`<tr class="border-t border-slate-100"><td class="py-1.5 px-3">${esc(p.sucursal||'—')}</td><td class="py-1.5 px-3 num">${esc(p.numero)}</td><td class="py-1.5 px-3">${esc(p.nombre)}</td><td class="py-1.5 px-3 num font-extrabold tracking-widest">${p.pin}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function descargarPines(){
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(importacion.pines.map(p=>({ Sucursal:p.sucursal, 'N° funcionario':p.numero, Nombre:p.nombre, PIN:p.pin }))), 'PINs');
+  XLSX.writeFile(wb, 'pins_funcionarios.xlsx');
+}
+
+render();
+</script>
+</body>
+</html>
