@@ -72,7 +72,7 @@ const FV = firebase.firestore.FieldValue;
 
 /* ===================== ESTADO ===================== */
 let perfil = null, nivel = '', sinAcceso = false, cargando = true;
-let lineas = [], productos = [], margenes = {}, costos = {}, pendientes = [];
+let lineas = [], productos = [], margenes = {}, costos = {}, pendientes = [], promos = [];
 let tab = (location.hash||'#catalogo').slice(1) || 'catalogo';
 let filtro = { linea:'', q:'', solo:'' };
 let unsubs = [];
@@ -161,6 +161,8 @@ function escuchar(){
   const on = (q, fn) => unsubs.push(q.onSnapshot(fn, e=>console.error(e)));
   on(db.collection('lineas'), s=>{ lineas = s.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.orden??999)-(b.orden??999) || a.nombre.localeCompare(b.nombre,'es')); render(); });
   on(db.collection('productos'), s=>{ productos = s.docs.map(d=>({id:d.id, ...d.data()})); cargando=false; render(); });
+  // Los vendedores solo reciben las promociones publicadas (las reglas lo exigen).
+  on(esAdmin() ? db.collection('promociones') : db.collection('promociones').where('publicada','==',true), s=>{ promos = s.docs.map(d=>({id:d.id, ...d.data()})); render(); });
   if(esAdmin()){
     on(db.collection('margenes'), s=>{ margenes = {}; s.docs.forEach(d=> margenes[d.id]=d.data()); render(); });
     on(db.collection('costos'), s=>{ costos = {}; s.docs.forEach(d=> costos[d.id]=d.data()); render(); });
@@ -176,12 +178,12 @@ function render(){
   const r = $('root');
   if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
   if(!nivel){ r.innerHTML = '<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
-  if(!esAdmin() && tab!=='catalogo') tab='catalogo';
+  if(!esAdmin() && !['catalogo','ofertas'].includes(tab)) tab='catalogo';
   // Mantiene el foco y el cursor del buscador al re-dibujar
   const foco = document.activeElement && document.activeElement.id; const sel = foco==='buscar' ? $('buscar').selectionStart : null;
-  r.innerHTML = vTabs() + (tab==='lineas'?vLineas(): tab==='pendientes'?vPendientes(): tab==='importar'?vImportar(): vCatalogo());
+  r.innerHTML = vTabs() + (tab==='ofertas'?vOfertas(): tab==='lineas'?vLineas(): tab==='pendientes'?vPendientes(): tab==='importar'?vImportar(): vCatalogo());
   if(foco==='buscar' && $('buscar')){ $('buscar').focus(); try{ $('buscar').setSelectionRange(sel,sel);}catch(e){} }
-  iconos(); cargarFotosVisibles();
+  iconos(); cargarFotosVisibles(); cargarFlyers();
 }
 function renderBarra(){
   const el = $('sessionBar');
@@ -198,9 +200,10 @@ function vSinAcceso(){
     <a href="../" class="inline-block mt-6 bg-brand-700 hover:bg-brand-800 text-white font-semibold px-5 py-2.5 rounded-lg">Volver al portal</a></div></div>`;
 }
 function vTabs(){
-  if(!esAdmin()) return '';
-  const t = (id, txt, icon, badge) => `<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-slate-900':'bg-rose-600 text-white'}">${badge}</span>`:''}</button>`;
-  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('lineas','Líneas y márgenes','percent')}${t('pendientes','Cargar en el sistema','clipboard-check', pendientes.length)}${t('importar','Importar listas','file-spreadsheet')}</nav>`;
+  const nVig = promosVigentes().length;
+  const t = (id, txt, icon, badge, color) => `<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-slate-900':(color||'bg-rose-600 text-white')}">${badge}</span>`:''}</button>`;
+  if(!esAdmin()) return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('ofertas','Ofertas vigentes','badge-percent', nVig, 'bg-amber-400 text-amber-950')}</nav>`;
+  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('ofertas','Ofertas y promociones','badge-percent', nVig, 'bg-amber-400 text-amber-950')}${t('lineas','Líneas y márgenes','percent')}${t('pendientes','Cargar en el sistema','clipboard-check', pendientes.length)}${t('importar','Importar listas','file-spreadsheet')}</nav>`;
 }
 
 /* ---------- CATÁLOGO ---------- */
@@ -240,6 +243,10 @@ function vCatalogo(){
       <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Catálogo</h1>
         <p class="text-slate-500 text-sm mt-1">${productos.filter(p=>p.activo!==false).length} productos · precios con IVA incluido</p></div>
     </div>
+    ${(()=>{ const v = promosVigentes(); if(!v.length) return '';
+      return `<button onclick="irTab('ofertas')" class="w-full mb-4 text-left bg-amber-400 hover:bg-amber-300 text-amber-950 rounded-2xl px-4 py-3 flex items-center gap-3">
+        <i data-lucide="badge-percent" class="w-7 h-7 shrink-0"></i><span class="flex-1 min-w-0"><span class="block font-extrabold">${v.length} oferta${v.length>1?'s':''} vigente${v.length>1?'s':''}</span>
+        <span class="block text-sm truncate">${v.map(p=>esc((p.mecanica?p.mecanica+' ':'')+p.titulo)).join(' · ')}</span></span><i data-lucide="chevron-right" class="w-5 h-5 shrink-0"></i></button>`; })()}
     <div class="flex flex-wrap gap-2 mb-3">
       <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="buscar" class="field !pl-9" placeholder="Buscar por nombre, código o código de barras" value="${esc(filtro.q)}" oninput="filtro.q=this.value;render()"></div>
@@ -290,6 +297,10 @@ function tarjetaProducto(p){
         ${LISTAS.map(l=>`<div class="bg-slate-50 rounded-lg px-2 py-1.5 min-w-0"><div class="text-[10px] font-semibold text-slate-400 uppercase truncate"><span class="sm:hidden">${l.corto}</span><span class="hidden sm:inline">${l.nombre}</span></div><div class="num font-bold text-slate-900 text-sm sm:text-base whitespace-nowrap">${money(pr[l.k])}</div></div>`).join('')}
       </div>
       ${p.publico!=null?`<div class="text-xs text-slate-500 mt-1.5">Precio público sugerido: <b class="num">${money(p.publico)}</b></div>`:''}
+      ${promosDeProducto(p.id).map(pr=>{ const it = pr.items.find(i=>i.codigo===p.id); const tipos = LISTAS.filter(l=>(pr.tipos||[]).includes(l.k));
+        return `<button onclick="verPromo('${pr.id}')" class="mt-2 w-full text-left bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs">
+          <span class="font-extrabold text-amber-900">${esc(pr.mecanica||'Oferta')}</span> <span class="text-amber-900">· ${esc(pr.titulo)} · hasta el ${fechaCorta(pr.hasta)}</span>
+          <span class="block num text-amber-950 mt-0.5">${tipos.map(l=>`${l.corto} <b>${money((it.precios||{})[l.k])}</b>`).join(' · ')}</span></button>`; }).join('')}
   </div>`;
 }
 function copiarCodigo(c){ (navigator.clipboard?navigator.clipboard.writeText(c):Promise.reject()).then(()=>toast('Código '+c+' copiado.')).catch(()=>toast('Código: '+c,'info')); }
@@ -831,6 +842,319 @@ async function importarCatalogo(){
     irTab('catalogo');
   }catch(e){ console.error(e); toast('Error importando: '+(e.message||e),'err'); btn.disabled=false; btn.textContent='Reintentar importación'; }
 }
+
+/* ===================== OFERTAS Y PROMOCIONES ===================== */
+// Una promo tiene: título, mecánica corta (ej. "15% OFF"), condición, vigencia (desde/hasta),
+// a qué tipos de cliente aplica y, por cada producto, su precio de oferta para cada tipo.
+function hoyKey(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fechaDe(k){ if(!k) return null; const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function diasEntre(a,b){ return Math.round((fechaDe(b)-fechaDe(a))/86400000); }
+const MESES_C = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fechaCorta(k){ const d=fechaDe(k); return d ? d.getDate()+' '+MESES_C[d.getMonth()] : '—'; }
+function estadoPromo(p){
+  if(!p.publicada) return 'borrador';
+  const h = hoyKey();
+  if(h < p.desde) return 'proxima';
+  if(h > p.hasta) return 'finalizada';
+  return 'vigente';
+}
+function promosVigentes(){ return promos.filter(p=>estadoPromo(p)==='vigente'); }
+function promosDeProducto(codigo){ return promosVigentes().filter(p=>(p.items||[]).some(i=>i.codigo===codigo)); }
+function textoVigencia(p){
+  const e = estadoPromo(p), h = hoyKey();
+  if(e==='vigente'){ const q = diasEntre(h, p.hasta); return q===0 ? 'Último día' : (q===1 ? 'Termina mañana' : `Quedan ${q} días`); }
+  if(e==='proxima'){ const q = diasEntre(h, p.desde); return q===1 ? 'Empieza mañana' : `Empieza en ${q} días`; }
+  if(e==='finalizada') return 'Terminó el ' + fechaCorta(p.hasta);
+  return 'Borrador: los vendedores no la ven';
+}
+const ESTILO_PROMO = {
+  vigente:   { chip:'bg-amber-400 text-amber-950', barra:'bg-amber-400 text-amber-950', nombre:'Vigente' },
+  proxima:   { chip:'bg-brand-100 text-brand-800', barra:'bg-brand-200 text-brand-900', nombre:'Próxima' },
+  borrador:  { chip:'bg-slate-200 text-slate-600', barra:'bg-white text-slate-500 border border-dashed border-slate-400', nombre:'Borrador' },
+  finalizada:{ chip:'bg-slate-100 text-slate-500', barra:'bg-slate-200 text-slate-500', nombre:'Finalizada' },
+};
+
+// Línea de tiempo: 6 semanas desde el lunes de la semana pasada.
+function lineaDeTiempo(lista){
+  const hoy = fechaDe(hoyKey());
+  const ini = new Date(hoy); ini.setDate(ini.getDate() - ((ini.getDay()+6)%7) - 7);
+  const N = 42, fin = new Date(ini); fin.setDate(fin.getDate()+N-1);
+  const k = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const iniK = k(ini), finK = k(fin);
+  const visibles = lista.filter(p=> p.desde<=finK && p.hasta>=iniK).sort((a,b)=>a.desde.localeCompare(b.desde));
+  if(!visibles.length) return '';
+  let semanas = '';
+  for(let s=0;s<6;s++){ const d=new Date(ini); d.setDate(d.getDate()+s*7); semanas += `<div class="text-[11px] font-semibold text-slate-400 border-l border-slate-200 pl-1.5 py-1">${d.getDate()} ${MESES_C[d.getMonth()]}</div>`; }
+  const hoyPct = (diasEntre(iniK, hoyKey())+0.5)/N*100;
+  const filas = visibles.map(p=>{
+    const a = p.desde < iniK ? iniK : p.desde, b = p.hasta > finK ? finK : p.hasta;
+    const left = diasEntre(iniK,a)/N*100, width = (diasEntre(a,b)+1)/N*100;
+    const e = ESTILO_PROMO[estadoPromo(p)];
+    return `<div class="relative h-8"><button onclick="verPromo('${p.id}')" title="${esc(p.titulo)} · ${fechaCorta(p.desde)} al ${fechaCorta(p.hasta)}"
+      class="absolute top-1 h-6 rounded-md px-2 text-[11px] font-bold truncate text-left ${e.barra}" style="left:${left}%;width:${width}%">${esc(p.mecanica?p.mecanica+' · ':'')}${esc(p.titulo)}</button></div>`;
+  }).join('');
+  return `<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-6 overflow-x-auto">
+    <div class="min-w-[640px] relative">
+      <div class="grid grid-cols-6 mb-1">${semanas}</div>
+      <div class="relative">${filas}<div class="absolute top-0 bottom-0 w-0.5 bg-rose-500" style="left:${hoyPct}%"><span class="absolute -top-0.5 left-1 text-[10px] font-bold text-rose-500">Hoy</span></div></div>
+    </div></div>`;
+}
+
+function vOfertas(){
+  const vig = promos.filter(p=>estadoPromo(p)==='vigente').sort((a,b)=>a.hasta.localeCompare(b.hasta));
+  const prox = promos.filter(p=>estadoPromo(p)==='proxima').sort((a,b)=>a.desde.localeCompare(b.desde));
+  const borr = promos.filter(p=>estadoPromo(p)==='borrador');
+  const fin = promos.filter(p=>estadoPromo(p)==='finalizada').sort((a,b)=>b.hasta.localeCompare(a.hasta));
+  const sec = (t, lista, vacio) => lista.length ? `<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3 mt-2">${t} (${lista.length})</h2><div class="grid lg:grid-cols-2 gap-4 mb-8">${lista.map(tarjetaPromo).join('')}</div>` : (vacio||'');
+  const vacioVig = `<div class="bg-white border border-dashed border-slate-300 rounded-2xl p-8 text-center text-slate-500 text-sm mb-8">No hay ofertas vigentes hoy.${esAdmin()?' Creá una con "Nueva promoción".':''}</div>`;
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Ofertas y promociones</h1>
+        <p class="text-slate-500 text-sm mt-1">${vig.length ? `${vig.length} vigente${vig.length>1?'s':''} hoy` : 'Sin ofertas vigentes hoy'}${prox.length?` · ${prox.length} próxima${prox.length>1?'s':''}`:''}</p></div>
+      ${esAdmin()?`<button onclick="abrirPromo(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nueva promoción</button>`:''}
+    </div>
+    ${lineaDeTiempo(esAdmin()?promos:promos.filter(p=>p.publicada))}
+    ${sec('Vigentes', vig, vacioVig)}
+    ${sec('Próximas', prox)}
+    ${esAdmin()?sec('Borradores', borr):''}
+    ${fin.length?`<details class="mb-8"><summary class="text-xs font-bold text-slate-400 uppercase tracking-wide cursor-pointer mb-3">Finalizadas (${fin.length})</summary><div class="grid lg:grid-cols-2 gap-4 mt-3">${fin.slice(0,20).map(tarjetaPromo).join('')}</div></details>`:''}`;
+}
+function tarjetaPromo(p){
+  const e = estadoPromo(p), st = ESTILO_PROMO[e];
+  const tipos = LISTAS.filter(l=>(p.tipos||[]).includes(l.k));
+  let progreso = '';
+  if(e==='vigente'){
+    const total = diasEntre(p.desde,p.hasta)+1, dia = diasEntre(p.desde,hoyKey())+1, quedan = diasEntre(hoyKey(),p.hasta);
+    progreso = `<div class="mt-3"><div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full ${quedan<=2?'bg-rose-500':'bg-amber-400'}" style="width:${Math.min(100,dia/total*100)}%"></div></div>
+      <div class="flex justify-between text-[11px] text-slate-400 mt-1 num"><span>${fechaCorta(p.desde)}</span><span>Día ${dia} de ${total}</span><span>${fechaCorta(p.hasta)}</span></div></div>`;
+  }
+  const items = (p.items||[]);
+  const filas = items.map(it=>{
+    const prod = productos.find(x=>x.id===it.codigo);
+    const nombre = prod ? prod.nombre : (it.nombre || it.codigo);
+    return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2"><div class="font-medium text-slate-800 leading-tight text-[13px]">${esc(nombre)}</div><div class="text-[11px] text-slate-400">Cód. ${esc(it.codigo)}</div></td>
+      ${tipos.map(l=>{ const lista = prod && prod.precios ? prod.precios[l.k] : null, of = (it.precios||{})[l.k];
+        return `<td class="py-1.5 px-1 text-right num whitespace-nowrap">${lista!=null&&of!=null&&r2(lista)!==r2(of)?`<div class="text-[10px] text-slate-400 line-through">${money(lista)}</div>`:''}<div class="font-bold text-[13px]">${money(of)}</div></td>`; }).join('')}</tr>`;
+  });
+  const visibles = filas.slice(0,5).join(''), resto = filas.slice(5).join('');
+  return `<div id="promo_${p.id}" class="bg-white border ${e==='vigente'?'border-amber-300 shadow-soft':'border-slate-200'} rounded-2xl p-4 ${e==='finalizada'?'opacity-75':''}">
+    <div class="flex items-start gap-3">
+      <div class="w-14 h-14 rounded-xl overflow-hidden shrink-0 ${p.flyerV?'bg-slate-100':'bg-amber-50 text-amber-600 flex items-center justify-center'}" data-flyer="${p.flyerV?p.id:''}">
+        ${p.flyerV ? (flyersCache[p.id]?`<img src="${flyersCache[p.id]}" class="w-full h-full object-cover">`:'') : '<i data-lucide="badge-percent" class="w-7 h-7"></i>'}</div>
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-1.5">${p.mecanica?`<span class="text-xs font-extrabold px-2 py-0.5 rounded-md ${st.chip}">${esc(p.mecanica)}</span>`:''}<span class="text-[11px] font-semibold text-slate-400">${st.nombre}</span></div>
+        <div class="font-bold text-slate-900 text-lg leading-tight mt-0.5">${esc(p.titulo)}</div>
+        <div class="text-xs text-slate-500 mt-0.5">${fechaCorta(p.desde)} al ${fechaCorta(p.hasta)} · <b class="${e==='vigente'&&diasEntre(hoyKey(),p.hasta)<=2?'text-rose-600':''}">${textoVigencia(p)}</b></div>
+      </div>
+      <div class="flex gap-1 shrink-0">
+        ${e!=='finalizada'&&e!=='borrador'?`<button onclick="compartirPromo('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Compartir"><i data-lucide="share-2" class="w-4 h-4"></i></button>`:''}
+        ${esAdmin()?`<button onclick="abrirPromo('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>`:''}
+      </div>
+    </div>
+    ${progreso}
+    <div class="flex flex-wrap gap-1 mt-3">${tipos.map(l=>`<span class="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">${l.nombre}</span>`).join('')}</div>
+    ${p.condicion?`<div class="text-sm text-slate-700 mt-2 flex gap-1.5"><i data-lucide="info" class="w-4 h-4 text-slate-400 shrink-0 mt-0.5"></i>${esc(p.condicion)}</div>`:''}
+    ${p.descripcion?`<div class="text-sm text-slate-500 mt-1 whitespace-pre-line">${esc(p.descripcion)}</div>`:''}
+    ${items.length?`<div class="overflow-x-auto mt-3"><table class="w-full text-sm"><thead><tr class="text-[10px] text-slate-400 uppercase"><th class="text-left font-semibold pb-1">${items.length} producto${items.length>1?'s':''}</th>${tipos.map(l=>`<th class="text-right font-semibold pb-1 px-1">${l.corto}</th>`).join('')}</tr></thead>
+      <tbody>${visibles}</tbody>${resto?`<tbody id="resto_${p.id}" class="hidden">${resto}</tbody>`:''}</table>
+      ${resto?`<button onclick="document.getElementById('resto_${p.id}').classList.remove('hidden'); this.remove()" class="text-xs font-semibold text-brand-700 mt-1">Ver los ${items.length-5} restantes</button>`:''}</div>`:''}
+  </div>`;
+}
+function verPromo(id){
+  if(tab!=='ofertas'){ irTab('ofertas'); }
+  setTimeout(()=>{ const el=document.getElementById('promo_'+id); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('ring-4','ring-amber-300'); setTimeout(()=>el.classList.remove('ring-4','ring-amber-300'),1600); } else { const p=promos.find(x=>x.id===id); if(p && esAdmin()) abrirPromo(id); } }, 80);
+}
+
+// Flyers (imagen opcional de la promo), se cargan de a uno.
+const flyersCache = {};
+function cargarFlyers(){
+  document.querySelectorAll('[data-flyer]').forEach(el=>{
+    const id = el.dataset.flyer; if(!id || flyersCache[id]!==undefined) return;
+    flyersCache[id] = null;
+    db.collection('promoFlyers').doc(id).get().then(d=>{ flyersCache[id] = d.exists ? d.data().data : null; if(flyersCache[id]) document.querySelectorAll(`[data-flyer="${id}"]`).forEach(x=> x.innerHTML = `<img src="${flyersCache[id]}" class="w-full h-full object-cover">`); }).catch(()=>{});
+  });
+}
+
+/* ---------- Compartir una promo (solo el precio del tipo de cliente elegido) ---------- */
+function compartirPromo(id){
+  const p = promos.find(x=>x.id===id); if(!p) return;
+  const tipos = LISTAS.filter(l=>(p.tipos||[]).includes(l.k));
+  modal('Compartir oferta', `
+    <p class="text-sm text-slate-600 mb-4"><b>${esc(p.titulo)}</b><br>Elegí el tipo de cliente: el mensaje lleva <b>solo sus precios</b>.</p>
+    <div class="grid gap-2">${tipos.map(l=>`<button onclick="enviarPromo('${id}','${l.k}')" class="w-full text-left border border-slate-200 hover:border-emerald-400 rounded-xl px-4 py-3 font-semibold">${l.nombre}</button>`).join('')}</div>`);
+}
+async function enviarPromo(id, k){
+  const p = promos.find(x=>x.id===id); if(!p) return;
+  const lineasTxt = (p.items||[]).map(it=>{
+    const prod = productos.find(x=>x.id===it.codigo); const lista = prod && prod.precios ? prod.precios[k] : null, of = (it.precios||{})[k];
+    return `• ${prod?prod.nombre:it.codigo} (Cód. ${it.codigo}): ${lista!=null&&of!=null&&r2(lista)!==r2(of)?`~${money(lista)}~ → `:''}*${money(of)}*`;
+  }).join('\n');
+  const texto = `*${p.mecanica?p.mecanica+' · ':''}${p.titulo}*\nVálida del ${fechaCorta(p.desde)} al ${fechaCorta(p.hasta)}${p.condicion?`\n${p.condicion}`:''}${p.descripcion?`\n${p.descripcion}`:''}${lineasTxt?`\n\n${lineasTxt}`:''}\n\nPrecios con IVA incluido.`;
+  cerrarModal();
+  try{
+    let img = p.flyerV ? flyersCache[id] : null;
+    if(p.flyerV && !img){ const d = await db.collection('promoFlyers').doc(id).get(); img = d.exists ? d.data().data : null; flyersCache[id]=img; }
+    if(img && navigator.canShare){
+      const blob = await (await fetch(img)).blob(); const f = new File([blob], 'oferta.jpg', {type:'image/jpeg'});
+      if(navigator.canShare({files:[f]})){ await navigator.share({ files:[f], text:texto }); return; }
+    }
+    if(navigator.share){ await navigator.share({ text:texto }); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  window.open('https://wa.me/?text='+encodeURIComponent(texto), '_blank');
+}
+
+/* ---------- Crear / editar promo (admin) ---------- */
+let edPromo = null;   // { id, items:[{codigo, precios:{}}], flyer: undefined|null|dataURL }
+function abrirPromo(id, duplicar){
+  const p = id ? promos.find(x=>x.id===id) : null;
+  const base = p ? JSON.parse(JSON.stringify(p)) : { titulo:'', mecanica:'', condicion:'', descripcion:'', desde:hoyKey(), hasta:hoyKey(), tipos:['dist','may','com'], items:[], publicada:true };
+  if(duplicar){ base.titulo += ' (copia)'; base.publicada = false; }
+  edPromo = { id: duplicar ? null : (p ? p.id : null), items: base.items||[], flyer: undefined, tieneFlyer: !!(p && p.flyerV && !duplicar), flyerOrigen: duplicar && p && p.flyerV ? p.id : null };
+  modal(edPromo.id ? 'Editar promoción' : (duplicar ? 'Duplicar promoción' : 'Nueva promoción'), `
+    <form onsubmit="guardarPromo(event)" class="space-y-4" novalidate>
+      <div class="grid sm:grid-cols-3 gap-3">
+        <div class="sm:col-span-2"><label class="lbl" for="prTitulo">Título</label><input class="field" id="prTitulo" value="${esc(base.titulo)}" placeholder="Ej.: Semana de los chicles FINI"></div>
+        <div><label class="lbl" for="prMec">Mecánica <span class="font-normal text-slate-400">(corto)</span></label><input class="field" id="prMec" value="${esc(base.mecanica)}" placeholder="Ej.: 15% OFF, 2x1"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="lbl" for="prDesde">Desde</label><input class="field" id="prDesde" type="date" value="${base.desde}"></div>
+        <div><label class="lbl" for="prHasta">Hasta</label><input class="field" id="prHasta" type="date" value="${base.hasta}"></div>
+      </div>
+      <div><span class="lbl">Aplica a</span><div class="flex flex-wrap gap-2">
+        ${LISTAS.map(l=>`<label class="inline-flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold cursor-pointer has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50"><input type="checkbox" class="prTipo" value="${l.k}" ${(base.tipos||[]).includes(l.k)?'checked':''} onchange="renderItemsPromo()">${l.nombre}</label>`).join('')}</div></div>
+      <div><label class="lbl" for="prCond">Condición <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="prCond" value="${esc(base.condicion)}" placeholder="Ej.: Llevando 5 bultos surtidos"></div>
+      <div><label class="lbl" for="prDesc">Descripción <span class="font-normal text-slate-400">(opcional, la ve el vendedor y va en el mensaje)</span></label><textarea class="field" id="prDesc" rows="2">${esc(base.descripcion)}</textarea></div>
+
+      <div class="border border-slate-200 rounded-2xl p-4">
+        <div class="font-semibold text-sm mb-2">Productos y precios de oferta <span class="font-normal text-slate-400">(IVA incluido)</span></div>
+        <div class="relative"><input class="field" id="prBuscar" placeholder="Buscar producto por nombre o código para agregarlo" oninput="buscarParaPromo(this.value)" autocomplete="off">
+          <div id="prResultados" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 hidden max-h-64 overflow-y-auto"></div></div>
+        <div class="flex flex-wrap items-end gap-2 mt-3">
+          <div><label class="lbl" for="prDesc_pct">Descuento sobre lista (%)</label><input class="field num !w-28" id="prDesc_pct" inputmode="decimal" placeholder="Ej.: 15"></div>
+          <button type="button" onclick="aplicarDescuentoPromo()" class="border border-slate-300 hover:border-brand-400 rounded-lg px-3 py-2 text-sm font-semibold">Aplicar a todos</button>
+          <button type="button" onclick="agregarLineaPromo()" class="text-sm font-semibold text-brand-700 px-2 py-2">+ Agregar una línea entera</button>
+        </div>
+        <div id="prItems" class="mt-3"></div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <div id="prFlyerPrev" class="w-20 h-20 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center shrink-0">${edPromo.tieneFlyer && flyersCache[id] ? `<img src="${flyersCache[id]}" class="w-full h-full object-cover">` : '<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>'}</div>
+        <div><label class="inline-flex items-center gap-2 border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold cursor-pointer hover:border-brand-400"><i data-lucide="image-plus" class="w-4 h-4"></i>Imagen o flyer <span class="font-normal text-slate-400">(opcional)</span>
+          <input type="file" accept="image/*" class="hidden" onchange="elegirFlyer(this)"></label>
+          ${edPromo.tieneFlyer?`<button type="button" onclick="quitarFlyer()" class="block text-xs text-slate-400 hover:text-rose-600 font-semibold mt-1">Quitar imagen</button>`:''}
+          <div class="text-xs text-slate-400 mt-1">Se manda junto con el mensaje al compartir.</div></div>
+      </div>
+      <label class="flex items-start gap-3 bg-slate-50 rounded-xl p-3 cursor-pointer"><input type="checkbox" id="prPublicada" class="mt-1" ${base.publicada?'checked':''}>
+        <span><span class="font-semibold text-sm">Publicada</span><span class="block text-xs text-slate-500">Si la desmarcás queda como borrador y los vendedores no la ven.</span></span></label>
+      <div id="prErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+      <div class="flex flex-wrap gap-2">
+        ${edPromo.id?`<button type="button" onclick="borrarPromo()" class="text-rose-600 border border-rose-200 hover:bg-rose-50 font-semibold px-4 py-2.5 rounded-xl">Eliminar</button>
+          <button type="button" onclick="cerrarModal(); setTimeout(()=>abrirPromo('${edPromo.id}', true), 50)" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl">Duplicar</button>`:''}
+        <button id="prBtn" class="flex-1 bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl min-w-[160px]">Guardar promoción</button>
+      </div>
+    </form>`, 'sm:max-w-3xl');
+  renderItemsPromo();
+}
+function tiposElegidos(){ return [...document.querySelectorAll('.prTipo:checked')].map(x=>x.value); }
+function leerItemsPromo(){
+  // Guarda lo que el usuario escribió antes de re-dibujar la lista
+  edPromo.items.forEach(it=>{ LISTAS.forEach(l=>{ const el = document.getElementById(`pi_${it.codigo}_${l.k}`); if(el){ const v = parseNum(el.value); if(v==null) delete it.precios[l.k]; else it.precios[l.k] = r2(v); } }); });
+}
+function renderItemsPromo(sinLeer){
+  const cont = $('prItems'); if(!cont) return;
+  if(!sinLeer) leerItemsPromo();
+  const tipos = LISTAS.filter(l=>tiposElegidos().includes(l.k));
+  if(!edPromo.items.length){ cont.innerHTML = '<div class="text-sm text-slate-400 py-2">Todavía no agregaste productos. Una promo puede no tener productos (por ejemplo, una condición general), pero lo normal es agregarlos.</div>'; return; }
+  cont.innerHTML = `<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-[10px] text-slate-400 uppercase"><th class="text-left font-semibold pb-1">Producto</th>${tipos.map(l=>`<th class="text-right font-semibold pb-1 px-1">${l.nombre}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${edPromo.items.map(it=>{ const prod = productos.find(x=>x.id===it.codigo);
+      return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2"><div class="font-medium leading-tight text-[13px]">${esc(prod?prod.nombre:it.codigo)}</div><div class="text-[11px] text-slate-400">Cód. ${esc(it.codigo)}</div></td>
+      ${tipos.map(l=>{ const lista = prod&&prod.precios?prod.precios[l.k]:null; return `<td class="py-1.5 px-1 text-right"><div class="text-[10px] text-slate-400 num">Lista ${money(lista)}</div><input id="pi_${it.codigo}_${l.k}" class="field num !py-1 !px-2 !w-24 text-right" inputmode="decimal" value="${it.precios[l.k]!=null?it.precios[l.k]:''}"></td>`; }).join('')}
+      <td class="pl-1"><button type="button" onclick="quitarItemPromo('${esc(it.codigo)}')" class="p-1.5 text-slate-300 hover:text-rose-600" title="Quitar"><i data-lucide="x" class="w-4 h-4"></i></button></td></tr>`; }).join('')}
+  </tbody></table></div>`;
+  iconos();
+}
+function buscarParaPromo(q){
+  const box = $('prResultados'); q = q.trim().toLowerCase();
+  if(q.length<2){ box.classList.add('hidden'); return; }
+  const ya = new Set(edPromo.items.map(i=>i.codigo));
+  const res = productos.filter(p=>p.activo!==false && !ya.has(p.id) && ((p.nombre||'')+' '+p.id).toLowerCase().includes(q)).slice(0,12);
+  box.innerHTML = res.length ? res.map(p=>`<button type="button" onclick="agregarItemPromo('${esc(p.id)}')" class="w-full text-left px-3 py-2 hover:bg-brand-50 text-sm border-b border-slate-100 last:border-0"><b>${esc(p.nombre)}</b> <span class="text-slate-400 text-xs">Cód. ${esc(p.id)} · ${esc(lineaNombre(p.lineaId))}</span></button>`).join('') : '<div class="px-3 py-2 text-sm text-slate-400">Sin resultados</div>';
+  box.classList.remove('hidden');
+}
+function agregarItemPromo(codigo){
+  leerItemsPromo();
+  if(!edPromo.items.some(i=>i.codigo===codigo)) edPromo.items.push({ codigo, precios:{} });
+  $('prBuscar').value=''; $('prResultados').classList.add('hidden'); renderItemsPromo(); $('prBuscar').focus();
+}
+function quitarItemPromo(codigo){ leerItemsPromo(); edPromo.items = edPromo.items.filter(i=>i.codigo!==codigo); renderItemsPromo(); }
+function agregarLineaPromo(){
+  modal2('Agregar una línea entera', `<div class="grid gap-2">${lineas.map(l=>`<button onclick="agregarLineaElegida('${l.id}')" class="text-left border border-slate-200 hover:border-brand-400 rounded-lg px-3 py-2 text-sm font-semibold">${esc(l.nombre)} <span class="text-slate-400 font-normal">· ${productos.filter(p=>p.lineaId===l.id&&p.activo!==false).length} productos</span></button>`).join('')}</div>`);
+}
+function agregarLineaElegida(lineaId){
+  cerrarModal2(); leerItemsPromo();
+  productos.filter(p=>p.lineaId===lineaId && p.activo!==false).forEach(p=>{ if(!edPromo.items.some(i=>i.codigo===p.id)) edPromo.items.push({ codigo:p.id, precios:{} }); });
+  renderItemsPromo();
+}
+function aplicarDescuentoPromo(){
+  const v = parseNum($('prDesc_pct').value); if(v==null){ $('prErr').textContent='Poné el porcentaje de descuento.'; return; }
+  leerItemsPromo(); $('prErr').textContent='';
+  const tipos = tiposElegidos();
+  edPromo.items.forEach(it=>{ const prod = productos.find(x=>x.id===it.codigo); if(!prod||!prod.precios) return; tipos.forEach(k=>{ if(prod.precios[k]!=null) it.precios[k] = r2(prod.precios[k]*(1-v/100)); }); });
+  renderItemsPromo(true);
+}
+async function elegirFlyer(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  try{ edPromo.flyer = await comprimirFoto(f); $('prFlyerPrev').innerHTML = `<img src="${edPromo.flyer}" class="w-full h-full object-cover">`; }
+  catch(e){ toast('No se pudo leer la imagen.','err'); }
+}
+function quitarFlyer(){ edPromo.flyer = null; $('prFlyerPrev').innerHTML = '<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>'; iconos(); }
+async function guardarPromo(e){
+  e.preventDefault(); leerItemsPromo();
+  const err = t => { $('prErr').textContent = t; };
+  const tipos = tiposElegidos();
+  const datos = {
+    titulo: $('prTitulo').value.trim(), mecanica: $('prMec').value.trim(), condicion: $('prCond').value.trim(), descripcion: $('prDesc').value.trim(),
+    desde: $('prDesde').value, hasta: $('prHasta').value, tipos, publicada: $('prPublicada').checked,
+    items: edPromo.items.map(it=>({ codigo: it.codigo, precios: Object.fromEntries(tipos.filter(k=>it.precios[k]!=null).map(k=>[k, it.precios[k]])) })),
+    actualizado: FV.serverTimestamp(), actualizadoPor: perfil.nombre||'',
+  };
+  if(!datos.titulo) return err('Poné un título.');
+  if(!datos.desde || !datos.hasta) return err('Completá las fechas.');
+  if(datos.hasta < datos.desde) return err('La fecha "hasta" es anterior a "desde".');
+  if(!tipos.length) return err('Elegí al menos un tipo de cliente.');
+  const incompleto = datos.items.find(it=> tipos.some(k=> !(it.precios[k]>0)));
+  if(incompleto){ const p = productos.find(x=>x.id===incompleto.codigo); return err(`Falta el precio de oferta de "${p?p.nombre:incompleto.codigo}". Usá "Aplicar a todos" o completalo a mano.`); }
+  const btn = $('prBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const ref = edPromo.id ? db.collection('promociones').doc(edPromo.id) : db.collection('promociones').doc();
+    if(!edPromo.id) datos.creado = FV.serverTimestamp();
+    let flyer = edPromo.flyer;
+    if(flyer===undefined && edPromo.flyerOrigen){ const d = await db.collection('promoFlyers').doc(edPromo.flyerOrigen).get(); flyer = d.exists ? d.data().data : undefined; }
+    if(flyer) datos.flyerV = Date.now(); else if(flyer===null) datos.flyerV = null;
+    const b = db.batch();
+    b.set(ref, datos, { merge:true });
+    if(flyer) b.set(db.collection('promoFlyers').doc(ref.id), { data:flyer, actualizado: FV.serverTimestamp() });
+    if(flyer===null) b.delete(db.collection('promoFlyers').doc(ref.id));
+    await b.commit();
+    if(flyer!==undefined) flyersCache[ref.id] = flyer || null;
+    cerrarModal(); toast(datos.publicada ? 'Promoción guardada y visible para los vendedores.' : 'Guardada como borrador.');
+    if(tab!=='ofertas') irTab('ofertas');
+  }catch(e2){ console.error(e2); err('No se pudo guardar. Revisá la conexión.'); btn.disabled=false; btn.textContent='Guardar promoción'; }
+}
+async function borrarPromo(){
+  if(!edPromo.id || !confirm('¿Eliminar esta promoción? No se puede deshacer.')) return;
+  try{ const b = db.batch(); b.delete(db.collection('promociones').doc(edPromo.id)); b.delete(db.collection('promoFlyers').doc(edPromo.id)); await b.commit(); cerrarModal(); toast('Promoción eliminada.','info'); }
+  catch(e){ toast('No se pudo eliminar.','err'); }
+}
+// Segundo modal (encima del editor) para elegir una línea entera
+function modal2(titulo, cuerpo){
+  const el = document.createElement('div'); el.id='modal2';
+  el.innerHTML = `<div class="fixed inset-0 z-[60] bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this) cerrarModal2()">
+    <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[80vh] overflow-y-auto"><div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100"><h3 class="font-bold">${titulo}</h3>
+    <button onclick="cerrarModal2()" class="text-slate-400"><i data-lucide="x" class="w-5 h-5"></i></button></div><div class="p-5">${cuerpo}</div></div></div>`;
+  document.body.appendChild(el); iconos();
+}
+function cerrarModal2(){ const el=$('modal2'); if(el) el.remove(); }
 
 render();
 </script>
