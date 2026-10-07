@@ -10,7 +10,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%231d4ed8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M14 34 L44 14 L36 44 L28 32 Z' fill='none' stroke='white' stroke-width='4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -25,9 +25,9 @@
   tailwind.config = {
     theme: {
       extend: {
-        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
         colors: {
-          brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' }
+          tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, brand: { 50:'#E8FAF3',100:'#CCF3E4',200:'#9BE6CB',300:'#5FD2AD',400:'#2FBA90',500:'#0F9F7A',600:'#0B8A6A',700:'#0B7A5E',800:'#0C614C',900:'#0B4F3F' }
         },
         boxShadow: { soft: '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06)' }
       }
@@ -35,10 +35,10 @@
   }
 </script>
 <style>
-  body{ background:#F5F8FB; font-family:'Inter',system-ui,sans-serif; }
+  body{ background:#EEF2F7; color:#121A2F; font-family:'Onest',system-ui,sans-serif; }
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:8px; }
-  .tab-btn.active{ background:#13395f; color:#fff; }
+  .tab-btn.active{ background:#0B8A6A; color:#fff; }
   .badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
   .b-pendiente{ background:#FEF3C7; color:#92400E; }
   .b-encamino{ background:#DBEAFE; color:#1E40AF; }
@@ -49,7 +49,7 @@
   @keyframes fadeIn{ from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:translateY(0)} }
   .modal-backdrop{ background:rgba(15,23,32,.5); backdrop-filter: blur(2px); }
   input,select,textarea{ outline:none; }
-  input:focus,select:focus,textarea:focus{ box-shadow:0 0 0 3px rgba(20,135,216,.18); border-color:#1487d8; }
+  input:focus,select:focus,textarea:focus{ box-shadow:0 0 0 3px rgba(15,159,122,.2); border-color:#0F9F7A; }
 </style>
 </head>
 <body class="text-slate-800">
@@ -58,20 +58,28 @@
 <div id="modalRoot"></div>
 
 <!-- TOP BAR -->
-<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-    <div class="flex items-center gap-2.5">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-brand-700 flex items-center justify-center text-white shadow-sm shrink-0">
-        <i data-lucide="send" class="w-5 h-5"></i>
-      </div>
-      <div>
-        <div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">ENVÍOS</span></div>
-        <div class="text-[11px] text-slate-400 leading-tight">Gestión y seguimiento de repartos</div>
+<header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
+      <span class="text-tinta/25 text-xl font-light" aria-hidden="true">/</span>
+      <div class="relative">
+        <button type="button" onclick="menuModulos(event)" class="flex items-center gap-2 rounded-xl pl-1 pr-2 py-1 hover:bg-white" aria-haspopup="true" aria-label="Cambiar de módulo">
+          <span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span>
+          <span class="font-display font-bold text-lg text-tinta">Envíos</span><i data-lucide="chevron-down" class="w-4 h-4 text-tinta/40"></i></button>
+        <div id="menuMod" class="hidden absolute left-0 mt-2 w-60 bg-white rounded-2xl shadow-[0_24px_48px_-16px_rgba(18,26,47,.3)] p-2 z-50">
+          <a href="../" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla"><span class="w-9 h-9 rounded-xl bg-tinta text-white flex items-center justify-center"><i data-lucide="layout-grid" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Inicio del portal</span></a>
+          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
+        </div>
       </div>
     </div>
     <div id="sessionBar" class="flex items-center gap-3"></div>
   </div>
 </header>
+<script>
+function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
+document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
+</script>
 
 <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="mainRoot"></main>
 
@@ -465,6 +473,47 @@ function renderAll(){
   else if(session.role === 'admin') renderAdmin();
   else renderRepartidorView();
   if(window.lucide) lucide.createIcons();
+}
+
+// La sesión la maneja Firebase (se guarda sola en el dispositivo). Cerrar sesión acá
+// cierra la sesión de todo el portal.
+function logout(){
+  detenerRastreoUbicacion(); detenerSincronizacion();
+  session = null; offlineMode=false; pendingSync=[];
+  firebase.auth().signOut().finally(irAlPortal);
+}
+// Ubicación del repartidor en segundo plano (para el mapa del administrador)
+let watchIdUbicacion = null;
+let ultimoEnvioUbicacion = 0;
+const INTERVALO_UBICACION_MS = 25000; // no mandar más seguido que cada ~25s (batería y cuota de Firestore)
+function iniciarRastreoUbicacion(){
+  if(watchIdUbicacion !== null) return; // ya está corriendo
+  if(!navigator.geolocation) return;
+  watchIdUbicacion = navigator.geolocation.watchPosition(
+    pos=>{
+      const ahora = Date.now();
+      if(ahora - ultimoEnvioUbicacion < INTERVALO_UBICACION_MS) return;
+      ultimoEnvioUbicacion = ahora;
+      const repId = session && session.role==='repartidor' ? session.repartidorId : null;
+      if(!repId) return;
+      fsActualizarUbicacion(repId, pos.coords.latitude, pos.coords.longitude);
+    },
+    err=>{ console.warn('No se pudo obtener la ubicación en segundo plano', err); },
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+  );
+}
+function detenerRastreoUbicacion(){
+  if(watchIdUbicacion === null) return;
+  if(navigator.geolocation) navigator.geolocation.clearWatch(watchIdUbicacion);
+  watchIdUbicacion = null;
+}
+function capturarUbicacionPuntual(callback){
+  if(!navigator.geolocation){ callback(null); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos=> callback({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+    err=>{ console.warn('No se pudo obtener la ubicación puntual', err); callback(null); },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+  );
 }
 
 function renderSessionBar(){
