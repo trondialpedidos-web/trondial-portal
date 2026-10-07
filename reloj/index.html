@@ -9,16 +9,16 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ccircle cx='32' cy='33' r='17' fill='none' stroke='white' stroke-width='5'/%3E%3Cpath d='M32 23v11l7 5' stroke='%23fbbf24' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'] } } } };</script>
+<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] } } } };</script>
 <style>
   html,body{ height:100%; }
   body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); -webkit-user-select:none; user-select:none; touch-action:manipulation; }
   .num{ font-variant-numeric: tabular-nums; }
-  .tecla{ font-size:2rem; font-weight:700; border-radius:1.25rem; background:#1e293b; color:#fff; height:4.5rem; }
+  .tecla{ font-family:'Bricolage Grotesque','Onest',sans-serif; font-size:2.1rem; font-weight:700; border-radius:1.25rem; background:#1e293b; color:#fff; height:4.5rem; }
   .tecla:active{ background:#334155; transform:scale(.97); }
   @media (min-height:800px){ .tecla{ height:5.25rem; } }
 </style>
@@ -169,8 +169,8 @@ function ubicacion(){
 /* ---------- pantallas ---------- */
 function encabezado(){
   return `<header class="flex items-center justify-between px-5 sm:px-8 pt-5">
-    <div><div class="text-xs font-bold tracking-widest text-amber-400">TRONDIAL · RELOJ</div><div class="text-lg sm:text-xl font-extrabold">${esc(sucursal?sucursal.nombre:'')}</div></div>
-    <div class="text-right"><div id="hora" class="num text-3xl sm:text-4xl font-black"></div><div id="fecha" class="text-xs text-slate-400 capitalize"></div></div>
+    <div><div class="font-display text-lg font-extrabold leading-none">trondial <span class="text-amber-400">reloj</span></div><div class="text-lg sm:text-xl font-extrabold">${esc(sucursal?sucursal.nombre:'')}</div></div>
+    <div class="text-right"><div id="hora" class="num font-display text-3xl sm:text-4xl font-extrabold"></div><div id="fecha" class="text-xs text-slate-400 capitalize"></div></div>
   </header>`;
 }
 function teclado(etiquetaOk){
@@ -188,7 +188,7 @@ function render(){
       <div class="text-slate-400">Para usar este equipo como reloj del local hay que cerrarla. Si es tu equipo personal, no lo uses como reloj.</div>
       <button onclick="auth.signOut().then(()=>location.reload())" class="mt-6 bg-white text-slate-900 font-bold px-6 py-3 rounded-xl">Cerrar sesión y usar como reloj</button></div>`,
     emparejar: ()=>`<div class="m-auto text-center px-6 max-w-lg">
-      <div class="text-xs font-bold tracking-widest text-amber-400 mb-3">TRONDIAL · RELOJ</div>
+      <div class="font-display text-2xl font-extrabold mb-4">trondial <span class="text-amber-400">reloj</span></div>
       <div class="text-2xl font-extrabold">Este equipo todavía no está activado</div>
       <div class="text-slate-400 mt-2">El administrador tiene que activarlo desde <b>Portal → Personal → Equipos</b> con este código:</div>
       <div class="num text-6xl sm:text-7xl font-black tracking-[.2em] text-amber-400 my-8">${esc(codigo.slice(0,3))} ${esc(codigo.slice(3))}</div>
@@ -199,7 +199,7 @@ function render(){
         <div id="visor" class="num text-5xl font-black h-16 mt-4 tracking-widest"></div><div id="msg" class="min-h-[1.5rem] text-amber-300 font-semibold"></div></div>
       ${teclado('Seguir')}</main>`,
     accion: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center items-center gap-6 px-5 py-6 text-center">
-      <div><div class="text-slate-400">Hola,</div><div class="text-3xl sm:text-4xl font-black">${esc(funcionario.nombre)}</div></div>
+      <div><div class="text-slate-400">Hola,</div><div class="font-display text-3xl sm:text-5xl font-extrabold">${esc(funcionario.nombre)}</div></div>
       <div class="grid sm:grid-cols-2 gap-4 w-full max-w-xl">
         <button onclick="elegirTipo('entrada')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='entrada'?'bg-emerald-500 text-slate-950 ring-4 ring-emerald-300':'bg-slate-800 text-slate-300'}">ENTRADA</button>
         <button onclick="elegirTipo('salida')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='salida'?'bg-rose-500 text-white ring-4 ring-rose-300':'bg-slate-800 text-slate-300'}">SALIDA</button>
@@ -212,8 +212,8 @@ function render(){
       ${teclado('Marcar')}<button onclick="reiniciar()" class="text-slate-400 font-semibold underline mx-auto">Cancelar</button></main>`,
     ok: ()=>`<div class="flex-1 flex flex-col items-center justify-center text-center px-6 ${detalleOk.tipo==='entrada'?'bg-emerald-500 text-slate-950':'bg-rose-500 text-white'}">
       <div class="text-2xl font-bold opacity-80">${detalleOk.tipo==='entrada'?'Entrada registrada':'Salida registrada'}</div>
-      <div class="num text-8xl font-black my-4">${hora(detalleOk.hora)}</div>
-      <div class="text-3xl font-black">${esc(detalleOk.nombre)}</div><div class="text-lg font-semibold opacity-80 mt-1">${esc(sucursal?sucursal.nombre:'')}</div>
+      <div class="num font-display text-8xl sm:text-9xl font-extrabold my-4">${hora(detalleOk.hora)}</div>
+      <div class="font-display text-3xl font-extrabold">${esc(detalleOk.nombre)}</div><div class="text-lg font-semibold opacity-80 mt-1">${esc(sucursal?sucursal.nombre:'')}</div>
       ${detalleOk.lejos?'<div class="mt-6 bg-black/20 rounded-xl px-4 py-2 font-semibold">Ubicación lejos del local: quedó registrado para revisar.</div>':''}
       <button onclick="reiniciar()" class="mt-10 bg-black/20 font-bold px-6 py-3 rounded-xl">Listo</button></div>`,
   };
