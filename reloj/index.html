@@ -64,7 +64,18 @@ function distanciaMetros(a,b){
 
 /* ---------- arranque: el equipo es una sesión anónima que el administrador activa ---------- */
 auth.onAuthStateChanged(async u=>{
-  if(!u){ try{ await auth.signInAnonymously(); }catch(e){ console.error(e); mensaje='No se pudo conectar con el servidor. Revisá internet.'; pantalla='error'; render(); } return; }
+  if(!u){
+    try{ await auth.signInAnonymously(); }
+    catch(e){
+      console.error(e);
+      const c = (e && e.code) || '';
+      mensaje = (c==='auth/operation-not-allowed' || c==='auth/admin-restricted-operation')
+        ? 'El ingreso "Anónimo" no está habilitado en Firebase (Authentication → Sign-in method → Anónimo). El administrador tiene que activarlo.'
+        : (c==='auth/network-request-failed' ? 'Sin conexión a internet.' : 'No se pudo conectar con el servidor ('+(c||'error desconocido')+').');
+      pantalla='error'; render();
+    }
+    return;
+  }
   if(!u.isAnonymous){ pantalla='sesionPortal'; render(); return; }
   escucharEquipo(u.uid);
 });
