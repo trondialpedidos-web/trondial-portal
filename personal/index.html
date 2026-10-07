@@ -9,7 +9,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Ccircle cx='32' cy='33' r='17' fill='none' stroke='white' stroke-width='5'/%3E%3Cpath d='M32 23v11l7 5' stroke='%23fbbf24' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -17,8 +17,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script>
   tailwind.config = { theme: { extend: {
-    fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
-    colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+    fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
+    colors: { tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, brand: { 50:'#F3F0FF',100:'#E8E2FF',200:'#D2C6FF',300:'#B29FFB',400:'#8E73F2',500:'#6544E0',600:'#5A39D2',700:'#5034BD',800:'#412A97',900:'#352477' } },
     boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
   } } };
 </script>
@@ -31,18 +31,30 @@
   @media print{ header, nav, .no-print{ display:none !important; } body{ background:#fff; } }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+<body class="bg-niebla text-tinta antialiased min-h-screen">
 
-<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-    <div class="flex items-center gap-2.5">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-950 flex items-center justify-center text-amber-400 shadow-sm shrink-0"><i data-lucide="clock" class="w-5 h-5"></i></div>
-      <div><div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">PERSONAL</span></div>
-        <div class="text-[11px] text-slate-400 leading-tight">Marcas, horarios y horas</div></div>
+<header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
+      <span class="text-tinta/25 text-xl font-light" aria-hidden="true">/</span>
+      <div class="relative">
+        <button type="button" onclick="menuModulos(event)" class="flex items-center gap-2 rounded-xl pl-1 pr-2 py-1 hover:bg-white" aria-haspopup="true" aria-label="Cambiar de módulo">
+          <span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span>
+          <span class="font-display font-bold text-lg text-tinta">Personal</span><i data-lucide="chevron-down" class="w-4 h-4 text-tinta/40"></i></button>
+        <div id="menuMod" class="hidden absolute left-0 mt-2 w-60 bg-white rounded-2xl shadow-[0_24px_48px_-16px_rgba(18,26,47,.3)] p-2 z-50">
+          <a href="../" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla"><span class="w-9 h-9 rounded-xl bg-tinta text-white flex items-center justify-center"><i data-lucide="layout-grid" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Inicio del portal</span></a>
+          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
+        </div>
+      </div>
     </div>
     <div id="sessionBar" class="flex items-center gap-3"></div>
   </div>
 </header>
+<script>
+function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
+document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
+</script>
 <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
 <div id="modalRoot"></div>
 
@@ -223,7 +235,7 @@ function vSinAcceso(){
 }
 function vTabs(){
   const pend = solicitudes.filter(s=>!dispositivos.some(d=>d.id===s.id)).length;
-  const t=(id,txt,icon,badge)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center bg-amber-400 text-amber-950">${badge}</span>`:''}</button>`;
+  const t=(id,txt,icon,badge)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center bg-amber-400 text-amber-950">${badge}</span>`:''}</button>`;
   return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1 no-print">${t('hoy','Hoy','sun')}${t('marcas','Marcas','list-checks')}${t('reporte','Reporte de horas','bar-chart-3')}${t('funcionarios','Funcionarios','users')}${t('sucursales','Sucursales','store')}${t('equipos','Equipos','monitor-smartphone',pend)}${t('importar','Importar','file-spreadsheet')}</nav>`;
 }
 
@@ -268,7 +280,7 @@ function vHoy(){
     </div>`).join('');
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight capitalize">${fechaLarga(k)}</h1>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight capitalize">${fechaLarga(k)}</h1>
       <p class="text-slate-500 text-sm mt-1">Tolerancia de llegada: <b>${config.tolerancia||0} min</b> · <button onclick="editarTolerancia()" class="text-brand-700 font-semibold underline">cambiar</button></p></div>
     </div>
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">${chip(adentro.length,'Trabajando ahora','text-emerald-600')}${chip(tarde.length,'Llegaron tarde','text-amber-600')}${chip(faltan.length,'No marcaron','text-rose-600')}${chip(alertas.length,'Alertas de lugar','text-slate-900')}</div>
@@ -316,7 +328,7 @@ function vMarcas(){
   }).join('');
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Marcas</h1><p class="text-slate-500 text-sm mt-1">Las marcas no se borran: se anulan con un motivo y queda registrado.</p></div>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Marcas</h1><p class="text-slate-500 text-sm mt-1">Las marcas no se borran: se anulan con un motivo y queda registrado.</p></div>
       <button onclick="abrirMarcaManual()" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Marca manual</button>
     </div>
     <div class="flex flex-wrap gap-2 mb-4">
@@ -390,7 +402,7 @@ function vReporte(){
   }
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Reporte de horas</h1><p class="text-slate-500 text-sm mt-1">Tocá un funcionario para ver el detalle día por día.</p></div>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Reporte de horas</h1><p class="text-slate-500 text-sm mt-1">Tocá un funcionario para ver el detalle día por día.</p></div>
       <button onclick="exportarExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${marcasRango===null?'disabled':''}><i data-lucide="download" class="w-4 h-4"></i>Excel</button>
     </div>
     <div class="flex flex-wrap gap-2 mb-4 items-center">
@@ -468,7 +480,7 @@ function vFuncionarios(){
   const lista = funcionarios.filter(f=> !filtro.sucursal || f.sucursalId===filtro.sucursal).filter(f=> !q || (f.id+' '+f.nombre+' '+(f.ci||'')).toLowerCase().includes(q));
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Funcionarios</h1><p class="text-slate-500 text-sm mt-1">${funcionarios.filter(f=>f.activo!==false).length} activos · ${funcionarios.filter(f=>!f.pinV).length} sin PIN</p></div>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Funcionarios</h1><p class="text-slate-500 text-sm mt-1">${funcionarios.filter(f=>f.activo!==false).length} activos · ${funcionarios.filter(f=>!f.pinV).length} sin PIN</p></div>
       <button onclick="abrirFuncionario(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="user-plus" class="w-4 h-4"></i>Funcionario</button>
     </div>
     <div class="flex flex-wrap gap-2 mb-4">
@@ -599,7 +611,7 @@ async function guardarFuncionario(e){
 function vSucursales(){
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Sucursales</h1><p class="text-slate-500 text-sm mt-1 max-w-2xl">La ubicación solo se usa para los relojes que son celulares: si alguien marca lejos del local, queda una alerta para revisar.</p></div>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Sucursales</h1><p class="text-slate-500 text-sm mt-1 max-w-2xl">La ubicación solo se usa para los relojes que son celulares: si alguien marca lejos del local, queda una alerta para revisar.</p></div>
       <button onclick="abrirSucursal(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Sucursal</button>
     </div>
     <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">${sucursales.map(s=>{
@@ -704,7 +716,7 @@ function vEquipos(){
   const pend = solicitudes.filter(s=>!dispositivos.some(d=>d.id===s.id)).sort((a,b)=>(aFecha(b.creado)||0)-(aFecha(a.creado)||0));
   const visto = d => { const v=aFecha(d.visto); if(!v) return 'Nunca'; const h=(Date.now()-v)/3600000; return h<1?'Hace menos de 1 hora': h<24?`Hace ${Math.floor(h)} h`:`Hace ${Math.floor(h/24)} días`; };
   return `
-    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Equipos de reloj</h1>
+    <h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Equipos de reloj</h1>
     <p class="text-slate-500 text-sm mt-1 mb-5 max-w-3xl">Solo se puede marcar desde equipos activados acá. En la PC o celular del local abrí <a href="${urlReloj()}" target="_blank" class="font-semibold text-brand-700 underline break-all">${urlReloj()}</a>: va a mostrar un código de 6 números para activarlo.</p>
     ${pend.length?`<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Esperando activación (${pend.length})</h2>
       <div class="grid sm:grid-cols-2 gap-3 mb-8">${pend.map(s=>`<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between gap-3">
@@ -750,7 +762,7 @@ async function descartarSolicitud(uid){ if(!confirm('¿Descartar este pedido de 
 function vImportar(){
   const r = importacion;
   return `<div class="max-w-3xl">
-    <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Importar desde MTCLOCK</h1>
+    <h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Importar desde MTCLOCK</h1>
     <p class="text-slate-500 text-sm mt-1 mb-6">Elegí el Excel con los funcionarios y las sucursales: el que armaste copiando las tablas, o el que genera el script. Se lee en tu computadora y se carga directo en el portal.</p>
     ${r && r.pines ? vPinesGenerados(r) : `
     <label class="block border-2 border-dashed border-slate-300 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer bg-white">
