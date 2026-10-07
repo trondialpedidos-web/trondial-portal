@@ -1,1 +1,580 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trondial Producción</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#2F6FE4">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232F6FE4'/%3E%3Cpath d='M14 48V28l10 6v-6l10 6v-6l10 6V16h6v32z' fill='white'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
+    colors: { tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, arandano:{ DEFAULT:'#2F6FE4', oscuro:'#1F4BAA' }, brand: { 50:'#EEF4FF',100:'#DCE8FF',200:'#B9D0FF',300:'#8BB1FB',400:'#5A8DF2',500:'#2F6FE4',600:'#245ACB',700:'#1F4BAA',800:'#1C3F8A',900:'#19356F' } },
+    boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
+  } } };
+</script>
+<style>
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  .field{ width:100%; border:1px solid #e2e8f0; border-radius:.6rem; padding:.55rem .75rem; font-size:.9rem; background:#fff; }
+  .field:focus{ outline:none; border-color:#2F6FE4; box-shadow:0 0 0 3px #DCE8FF; }
+  .lbl{ display:block; font-size:.75rem; font-weight:600; color:#64748b; margin-bottom:.3rem; }
+  .num{ font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body class="bg-niebla text-tinta antialiased min-h-screen">
+<header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-arandano"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
+      <span class="text-tinta/25 text-xl font-light" aria-hidden="true">/</span>
+      <div class="relative">
+        <button type="button" onclick="menuModulos(event)" class="flex items-center gap-2 rounded-xl pl-1 pr-2 py-1 hover:bg-white" aria-haspopup="true" aria-label="Cambiar de módulo">
+          <span class="w-9 h-9 rounded-xl bg-arandano text-white flex items-center justify-center"><i data-lucide="factory" class="w-[18px] h-[18px]"></i></span>
+          <span class="font-display font-bold text-lg text-tinta">Producción</span><i data-lucide="chevron-down" class="w-4 h-4 text-tinta/40"></i></button>
+        <div id="menuMod" class="hidden absolute left-0 mt-2 w-60 bg-white rounded-2xl shadow-[0_24px_48px_-16px_rgba(18,26,47,.3)] p-2 z-50">
+          <a href="../" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla"><span class="w-9 h-9 rounded-xl bg-tinta text-white flex items-center justify-center"><i data-lucide="layout-grid" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Inicio del portal</span></a>
+          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../produccion/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-arandano text-white flex items-center justify-center"><i data-lucide="factory" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Producción</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
+        </div>
+      </div>
+    </div>
+    <div id="sessionBar" class="flex items-center gap-3"></div>
+  </div>
+</header>
+<script>
+function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
+document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
+</script>
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
+<div id="modalRoot"></div>
 
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAA1nEPhtZ5s8TD3wATBOvI5vW0lFEu3KU",
+  authDomain: "trondial-portal.firebaseapp.com",
+  projectId: "trondial-portal",
+  storageBucket: "trondial-portal.firebasestorage.app",
+  messagingSenderId: "116037416042",
+  appId: "1:116037416042:web:efd4862444a1c41ea2c613"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs:true }).catch(()=>{});
+const FV = firebase.firestore.FieldValue;
+const UNIDADES = ['bultos','cajas','unidades','kg','tandas','bandejas','displays'];
+// Etapas de una orden, en orden. "cambio" = la fábrica pidió modificar algo.
+const ETAPAS = [
+  { id:'nueva',      nombre:'Nuevas',          corto:'Nueva',          color:'bg-slate-500',  chip:'bg-slate-100 text-slate-700' },
+  { id:'cambio',     nombre:'Piden cambio',    corto:'Pide cambio',    color:'bg-amber-500',  chip:'bg-amber-100 text-amber-800' },
+  { id:'aceptada',   nombre:'Aceptadas',       corto:'Aceptada',       color:'bg-brand-400',  chip:'bg-brand-100 text-brand-800' },
+  { id:'produccion', nombre:'En producción',   corto:'En producción',  color:'bg-brand-600',  chip:'bg-brand-600 text-white' },
+  { id:'lista',      nombre:'Listas en expedición', corto:'Lista',     color:'bg-violet-500', chip:'bg-violet-100 text-violet-800' },
+  { id:'despachada', nombre:'En camino',       corto:'En camino',      color:'bg-sky-500',    chip:'bg-sky-100 text-sky-800' },
+  { id:'recibida',   nombre:'Recibidas',       corto:'Recibida',       color:'bg-emerald-500',chip:'bg-emerald-100 text-emerald-800' },
+  { id:'cancelada',  nombre:'Canceladas',      corto:'Cancelada',      color:'bg-slate-300',  chip:'bg-slate-100 text-slate-500' },
+];
+const etapa = id => ETAPAS.find(e=>e.id===id) || ETAPAS[0];
+
+/* ===================== ESTADO ===================== */
+let perfil=null, rol='', sinAcceso=false;
+let productosF=[], ordenes=[], despachos=[];
+let tab = (location.hash||'#ordenes').slice(1) || 'ordenes';
+let verCerradas = false, unsubs=[];
+
+/* ===================== UTILIDADES ===================== */
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function iconos(){ if(window.lucide) lucide.createIcons(); }
+function hoyKey(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function deKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function diasHasta(k){ return Math.round((deKey(k) - deKey(hoyKey()))/86400000); }
+const MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fechaCorta(k){ if(!k) return '—'; const d=deKey(k); return d.getDate()+' '+MES[d.getMonth()]; }
+function aFecha(v){ if(!v) return null; if(v.toDate) return v.toDate(); return new Date(v); }
+function cuando(v){ const d=aFecha(v); return d ? d.toLocaleString('es-UY',{ day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false }) : ''; }
+function cant(n){ return Number(n||0).toLocaleString('es-UY',{ maximumFractionDigits:2 }); }
+function toast(msg, tipo){
+  const c={ ok:'bg-emerald-600', err:'bg-rose-600', info:'bg-slate-800' };
+  const el=document.createElement('div'); el.className='fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[92vw] '+(c[tipo||'ok']);
+  el.textContent=msg; document.body.appendChild(el); setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 3600);
+}
+function motivoError(e){ const c=(e&&e.code)||''; if(c==='permission-denied') return 'Firebase no dio permiso. Revisá que estén publicadas las reglas de Firestore más nuevas.'; if(c==='unavailable') return 'Sin conexión con el servidor.'; return 'No se pudo guardar'+(c?' ('+c+')':'')+'.'; }
+function modal(titulo, cuerpo, ancho){
+  $('modalRoot').innerHTML = `<div class="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this) cerrarModal()">
+    <div class="bg-white w-full ${ancho||'sm:max-w-lg'} rounded-t-[24px] sm:rounded-[24px] shadow-xl max-h-[94vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 sticky top-0 bg-white z-10"><h3 class="font-display font-bold text-xl text-tinta">${titulo}</h3>
+        <button onclick="cerrarModal()" class="text-slate-400 hover:text-slate-700" aria-label="Cerrar"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+      <div class="p-5">${cuerpo}</div></div></div>`;
+  iconos();
+}
+function cerrarModal(){ $('modalRoot').innerHTML=''; }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
+function datosDoc(d){ return Object.assign({ id:d.id }, d.data({ serverTimestamps:'estimate' })); }
+const esOficina = () => rol==='oficina' || rol==='admin';
+const esFabrica = () => rol==='fabrica' || rol==='admin';
+const yo = () => (perfil && perfil.nombre) || '';
+
+/* ===================== INGRESO ===================== */
+firebase.auth().onAuthStateChanged(user=>{
+  if(!user || user.isAnonymous || !user.emailVerified){ location.href='../'; return; }
+  db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
+    perfil = doc.exists ? doc.data() : null;
+    const r = (perfil && perfil.activo) ? (perfil.dueno ? 'admin' : ((perfil.permisos||{}).produccion||'')) : '';
+    if(!['admin','oficina','fabrica'].includes(r)){ detener(); rol=''; sinAcceso=true; render(); return; }
+    if(r!==rol){ rol=r; sinAcceso=false; detener(); escuchar(); }
+    render();
+  }, ()=>{ detener(); sinAcceso=true; render(); });
+});
+function detener(){ unsubs.forEach(f=>{try{f();}catch(e){}}); unsubs=[]; }
+function escuchar(){
+  const on=(q,fn)=>unsubs.push(q.onSnapshot(fn, e=>console.error(e)));
+  on(db.collection('prodProductos'), s=>{ productosF = s.docs.map(datosDoc).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')); render(); });
+  // Órdenes abiertas siempre, más todo lo movido en los últimos 45 días (para ver las cerradas)
+  let abiertas = [], recientes = [];
+  const unir = ()=>{ const m = {}; recientes.concat(abiertas).forEach(o=>m[o.id]=o); ordenes = Object.values(m); render(); };
+  on(db.collection('ordenes').where('estado','in',['nueva','cambio','aceptada','produccion','lista','despachada']), s=>{ abiertas = s.docs.map(datosDoc); unir(); });
+  on(db.collection('ordenes').where('actualizadoDia','>=',hoyKeyMenos(45)), s=>{ recientes = s.docs.map(datosDoc); unir(); });
+  on(db.collection('despachos').where('dia','>=',hoyKeyMenos(45)), s=>{ despachos = s.docs.map(datosDoc); render(); });
+}
+function hoyKeyMenos(n){ const d=new Date(); d.setDate(d.getDate()-n); return hoyKey(d); }
+function salir(){ detener(); firebase.auth().signOut().finally(()=>location.href='../'); }
+function irTab(t){ tab=t; history.replaceState(null,'','#'+t); render(); window.scrollTo(0,0); }
+
+/* ===================== RENDER ===================== */
+function render(){
+  renderBarra();
+  const r=$('root');
+  if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
+  if(!rol){ r.innerHTML='<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
+  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos };
+  if(tab==='productos' && !esOficina()) tab='ordenes';
+  r.innerHTML = vTabs() + (vistas[tab]||vOrdenes)();
+  iconos();
+}
+function renderBarra(){
+  const el=$('sessionBar'); if(!el) return;
+  const portal=`<a href="../" class="text-xs font-semibold text-slate-500 hover:text-brand-700 flex items-center gap-1"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Portal</a>`;
+  if(!perfil){ el.innerHTML=portal; return; }
+  const nombreRol = { admin:'Administrador', oficina:'Oficina', fabrica:'Fábrica' }[rol]||'';
+  el.innerHTML = `<span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-white px-3 py-1.5 rounded-full">${esc(perfil.nombre)}${nombreRol?` <span class="text-brand-700">· ${nombreRol}</span>`:''}</span>${portal}
+    <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">Cerrar sesión</span></button>`;
+}
+function vSinAcceso(){
+  return `<div class="max-w-md mx-auto py-14"><div class="bg-white rounded-[28px] p-8 text-center">
+    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4"><i data-lucide="lock" class="w-6 h-6"></i></div>
+    <h1 class="font-display text-2xl font-extrabold">Sin acceso a Producción</h1><p class="text-sm text-slate-500 mt-2">Tu usuario no tiene permiso en este módulo.</p>
+    <a href="../" class="inline-block mt-6 bg-brand-600 text-white font-semibold px-5 py-2.5 rounded-xl">Volver al portal</a></div></div>`;
+}
+function vTabs(){
+  const enCamino = despachos.filter(d=>d.estado==='en-camino').length;
+  const t=(id,txt,icon,badge)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-brand-700':'bg-sky-500 text-white'}">${badge}</span>`:''}</button>`;
+  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('ordenes','Órdenes','clipboard-list')}${t('despachos','Despachos','truck')}${esOficina()?t('recepcion','Recepción','package-check',enCamino):''}${esOficina()?t('productos','Productos de fábrica','boxes'):''}</nav>`;
+}
+
+/* ===================== LÓGICA DE CANTIDADES ===================== */
+function totales(o){
+  const it = o.items||[];
+  const s = k => it.reduce((a,x)=>a+Number(x[k]||0),0);
+  return { pedido:s('cantidad'), producido:s('producido'), despachado:s('despachado'), recibido:s('recibido') };
+}
+function pct(a,b){ return b ? Math.min(100, Math.round(a/b*100)) : 0; }
+function textoFecha(o){
+  if(!o.fechaRequerida) return '';
+  const d = diasHasta(o.fechaRequerida), cerrada = ['recibida','cancelada'].includes(o.estado);
+  if(cerrada) return `Para el ${fechaCorta(o.fechaRequerida)}`;
+  if(d<0) return `<span class="text-rose-600 font-bold">Atrasada ${-d} día${d===-1?'':'s'}</span>`;
+  if(d===0) return `<span class="text-amber-700 font-bold">Para hoy</span>`;
+  if(d===1) return `<span class="text-amber-700 font-semibold">Para mañana</span>`;
+  return `Para el ${fechaCorta(o.fechaRequerida)}`;
+}
+
+/* ---------- ÓRDENES: tablero por etapa ---------- */
+function vOrdenes(){
+  const abiertas = ordenes.filter(o=>!['recibida','cancelada'].includes(o.estado));
+  const cerradas = ordenes.filter(o=>['recibida','cancelada'].includes(o.estado)).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const columnas = ETAPAS.filter(e=>!['recibida','cancelada'].includes(e.id)).filter(e=> e.id!=='cambio' || abiertas.some(o=>o.estado==='cambio'));
+  const tarjeta = o => {
+    const t = totales(o), e = etapa(o.estado);
+    const barra = o.estado==='produccion' || t.producido ? `<div class="mt-3"><div class="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full bg-brand-500" style="width:${pct(t.producido,t.pedido)}%"></div></div><div class="text-[11px] text-slate-500 mt-1">${pct(t.producido,t.pedido)}% producido</div></div>` : '';
+    return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left bg-white rounded-2xl p-4 hover:ring-2 hover:ring-brand-300 transition">
+      <div class="flex items-start justify-between gap-2"><span class="font-display font-extrabold text-lg">N° ${o.numero||'—'}</span>
+        ${o.prioridad==='urgente'?'<span class="text-[11px] font-bold bg-rose-500 text-white px-2 py-0.5 rounded-full">Urgente</span>':''}</div>
+      <div class="text-xs text-slate-500 mt-0.5">${textoFecha(o)}</div>
+      <div class="text-sm text-slate-700 mt-2 line-clamp-2">${(o.items||[]).slice(0,3).map(x=>`${cant(x.cantidad)} ${esc(x.unidad)} ${esc(x.nombre)}`).join(' · ')}${(o.items||[]).length>3?` y ${o.items.length-3} más`:''}</div>
+      ${o.estado==='cambio'?`<div class="text-xs text-amber-800 bg-amber-50 rounded-lg px-2 py-1.5 mt-2">${esc(o.pedidoCambio||'')}</div>`:''}
+      ${barra}
+    </button>`;
+  };
+  const col = e => { const lista = abiertas.filter(o=>o.estado===e.id).sort((a,b)=>(a.prioridad==='urgente'?-1:0)-(b.prioridad==='urgente'?-1:0) || (a.fechaRequerida||'').localeCompare(b.fechaRequerida||''));
+    return `<section class="min-w-[260px] w-[260px] lg:w-auto lg:min-w-0 flex-shrink-0 lg:flex-1">
+      <div class="flex items-center gap-2 mb-3 px-1"><span class="w-2.5 h-2.5 rounded-full ${e.color}"></span><span class="font-semibold text-sm">${e.nombre}</span><span class="text-xs text-slate-400 font-semibold">${lista.length}</span></div>
+      <div class="space-y-2.5">${lista.map(tarjeta).join('') || '<div class="text-xs text-slate-400 px-1 py-4">—</div>'}</div></section>`; };
+  return `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Órdenes de producción</h1>
+        <p class="text-slate-500 mt-1">${abiertas.length} abierta${abiertas.length===1?'':'s'}${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length?` · <span class="text-rose-600 font-semibold">${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length} atrasada(s)</span>`:''}</p></div>
+      ${esOficina()?`<button onclick="abrirNuevaOrden()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nueva orden</button>`:''}
+    </div>
+    ${abiertas.length ? `<div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">${columnas.map(col).join('')}</div>`
+      : `<div class="bg-white rounded-[28px] p-10 text-center text-slate-500">${esOficina()?'No hay órdenes abiertas. Creá la primera con "Nueva orden".':'No hay órdenes para producir.'}${!productosF.length&&esOficina()?'<div class="mt-2 text-sm">Antes, cargá los productos que hace la fábrica en "Productos de fábrica".</div>':''}</div>`}
+    ${cerradas.length?`<details class="mt-6" ${verCerradas?'open':''} ontoggle="verCerradas=this.open"><summary class="font-semibold text-sm text-slate-500 cursor-pointer">Cerradas en los últimos 45 días (${cerradas.length})</summary>
+      <div class="bg-white rounded-2xl mt-3 divide-y divide-slate-100">${cerradas.map(o=>{ const t=totales(o), dif=o.estado==='recibida' && t.recibido<t.pedido;
+        return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50"><span class="font-display font-bold w-16">N° ${o.numero}</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${etapa(o.estado).chip}">${etapa(o.estado).corto}</span>
+          <span class="flex-1 text-sm text-slate-600 truncate">${(o.items||[]).map(x=>esc(x.nombre)).join(', ')}</span>${dif?'<span class="text-xs font-semibold text-rose-600">Llegó incompleta</span>':''}</button>`; }).join('')}</div></details>`:''}`;
+}
+
+/* ---------- Nueva orden (oficina) ---------- */
+let edOrden = null;
+function abrirNuevaOrden(id){
+  const o = id ? ordenes.find(x=>x.id===id) : null;
+  if(!productosF.length){ modal('Primero, los productos', `<p class="text-sm text-slate-600">Para hacer una orden, cargá los productos que fabrica la fábrica en <b>Productos de fábrica</b>. Podés traerlos del catálogo de Ventas o crearlos a mano.</p><button onclick="cerrarModal(); irTab('productos')" class="mt-4 w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Ir a Productos de fábrica</button>`); return; }
+  edOrden = { id: o?o.id:null, items: o ? JSON.parse(JSON.stringify(o.items)) : [] };
+  modal(o?`Editar orden N° ${o.numero}`:'Nueva orden', `<form onsubmit="guardarOrden(event)" class="space-y-4" novalidate>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="lbl" for="oFecha">La necesitamos para el</label><input class="field" type="date" id="oFecha" value="${o?o.fechaRequerida:hoyKeyMenos(-3)}"></div>
+      <div><span class="lbl">Prioridad</span><div class="grid grid-cols-2 gap-1.5">
+        ${['normal','urgente'].map(p=>`<label class="border rounded-lg px-3 py-2 text-sm font-semibold text-center cursor-pointer has-[:checked]:${p==='urgente'?'bg-rose-500 has-[:checked]:text-white has-[:checked]:border-rose-500':'bg-brand-50 has-[:checked]:border-brand-500'}"><input type="radio" name="oPrio" value="${p}" class="hidden" ${(o?o.prioridad:'normal')===p?'checked':''}>${p==='normal'?'Normal':'Urgente'}</label>`).join('')}</div></div>
+    </div>
+    <div><span class="lbl">Productos</span>
+      <div class="relative"><input class="field" id="oBuscar" placeholder="Buscar producto de fábrica para agregarlo" oninput="buscarProdOrden(this.value)" autocomplete="off">
+        <div id="oRes" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 hidden max-h-64 overflow-y-auto"></div></div>
+      <div id="oItems" class="mt-3 space-y-2"></div></div>
+    <div><label class="lbl" for="oNotas">Notas para la fábrica <span class="font-normal text-slate-400">(opcional)</span></label><textarea class="field" id="oNotas" rows="2" placeholder="Ej.: es para el pedido grande de un distribuidor">${esc(o?o.notas:'')}</textarea></div>
+    <div id="oErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button id="oBtn" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3 rounded-xl">${o?'Guardar cambios':'Enviar a fábrica'}</button></form>`, 'sm:max-w-2xl');
+  pintarItemsOrden();
+}
+function leerItemsOrden(){ edOrden.items.forEach((it,i)=>{ const c=$('oc'+i), u=$('ou'+i); if(c) it.cantidad = Number(String(c.value).replace(',','.'))||0; if(u) it.unidad = u.value; }); }
+function pintarItemsOrden(){
+  const cont=$('oItems'); if(!cont) return;
+  cont.innerHTML = edOrden.items.length ? edOrden.items.map((it,i)=>`<div class="flex items-center gap-2 bg-niebla rounded-xl p-2">
+    <div class="flex-1 min-w-0 text-sm font-medium truncate">${esc(it.nombre)}${it.codigo?` <span class="text-xs text-slate-400">Cód. ${esc(it.codigo)}</span>`:''}</div>
+    <input id="oc${i}" class="field num !w-24 text-right" inputmode="decimal" value="${it.cantidad||''}" placeholder="Cant.">
+    <select id="ou${i}" class="field !w-28">${UNIDADES.map(u=>`<option ${u===it.unidad?'selected':''}>${u}</option>`).join('')}</select>
+    <button type="button" onclick="leerItemsOrden(); edOrden.items.splice(${i},1); pintarItemsOrden()" class="p-2 text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button></div>`).join('')
+    : '<div class="text-sm text-slate-400">Agregá al menos un producto.</div>';
+  iconos();
+}
+function buscarProdOrden(q){
+  const box=$('oRes'); q=q.trim().toLowerCase(); if(q.length<2){ box.classList.add('hidden'); return; }
+  const ya = new Set(edOrden.items.map(x=>x.prodId));
+  const res = productosF.filter(p=>p.activo!==false && !ya.has(p.id) && ((p.nombre||'')+' '+(p.codigo||'')).toLowerCase().includes(q)).slice(0,12);
+  box.innerHTML = res.length ? res.map(p=>`<button type="button" onclick="agregarProdOrden('${p.id}')" class="w-full text-left px-3 py-2 hover:bg-brand-50 text-sm border-b border-slate-100 last:border-0"><b>${esc(p.nombre)}</b> <span class="text-xs text-slate-400">${esc(p.unidad)}</span></button>`).join('') : '<div class="px-3 py-2 text-sm text-slate-400">Sin resultados. Podés crearlo en Productos de fábrica.</div>';
+  box.classList.remove('hidden');
+}
+function agregarProdOrden(id){
+  leerItemsOrden(); const p = productosF.find(x=>x.id===id); if(!p) return;
+  edOrden.items.push({ prodId:p.id, nombre:p.nombre, codigo:p.codigo||'', unidad:p.unidad||'bultos', cantidad:0, producido:0, despachado:0, recibido:0 });
+  $('oBuscar').value=''; $('oRes').classList.add('hidden'); pintarItemsOrden();
+  const i = edOrden.items.length-1; setTimeout(()=>$('oc'+i)&&$('oc'+i).focus(), 30);
+}
+async function guardarOrden(e){
+  e.preventDefault(); leerItemsOrden();
+  const err=t=>{ $('oErr').textContent=t; };
+  const fecha=$('oFecha').value, prioridad=(document.querySelector('input[name=oPrio]:checked')||{}).value||'normal', notas=$('oNotas').value.trim();
+  if(!fecha) return err('Poné para cuándo la necesitan.');
+  if(!edOrden.items.length) return err('Agregá al menos un producto.');
+  const malo = edOrden.items.find(x=>!(x.cantidad>0)); if(malo) return err(`Poné la cantidad de "${malo.nombre}".`);
+  const btn=$('oBtn'); btn.disabled=true; btn.textContent='Enviando…';
+  try{
+    if(edOrden.id){
+      await db.collection('ordenes').doc(edOrden.id).update({ fechaRequerida:fecha, prioridad, notas, items:edOrden.items, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+        historial: FV.arrayUnion({ estado:'editada', por:yo(), cuando:new Date().toISOString(), nota:'Se modificó la orden' }) });
+      cerrarModal(); toast('Orden actualizada.');
+    } else {
+      const ref = db.collection('ordenes').doc();
+      const numero = await db.runTransaction(async tx=>{
+        const cRef = db.collection('contadores').doc('ordenes'); const c = await tx.get(cRef);
+        const n = (c.exists ? c.data().ultimo : 0) + 1;
+        tx.set(cRef, { ultimo:n });
+        tx.set(ref, { numero:n, fechaRequerida:fecha, prioridad, notas, items:edOrden.items, estado:'nueva', creadoPor:yo(), creado:FV.serverTimestamp(), actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+          historial:[{ estado:'nueva', por:yo(), cuando:new Date().toISOString(), nota:'' }] });
+        return n;
+      });
+      cerrarModal(); toast(`Orden N° ${numero} enviada a fábrica.`);
+    }
+  }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Enviar a fábrica'; }
+}
+
+/* ---------- Detalle de una orden y acciones según el rol ---------- */
+function abrirOrden(id){
+  const o = ordenes.find(x=>x.id===id); if(!o) return;
+  const e = etapa(o.estado), t = totales(o);
+  const acciones = [];
+  if(esFabrica()){
+    if(['nueva','cambio'].includes(o.estado)){ acciones.push(`<button onclick="aceptarOrden('${id}')" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl">Aceptar</button>`);
+      if(o.estado==='nueva') acciones.push(`<button onclick="pedirCambio('${id}')" class="border border-amber-300 text-amber-800 font-semibold px-4 py-2.5 rounded-xl">Pedir un cambio</button>`); }
+    if(o.estado==='aceptada') acciones.push(`<button onclick="cambiarEstado('${id}','produccion','Empezó la producción')" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl">Empezar producción</button>`);
+    if(['aceptada','produccion','lista'].includes(o.estado)) acciones.push(`<button onclick="registrarAvance('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl">Cargar lo producido</button>`);
+    if(o.estado==='produccion') acciones.push(`<button onclick="cambiarEstado('${id}','lista','Lista en expedición')" class="bg-violet-600 text-white font-semibold px-4 py-2.5 rounded-xl">Marcar lista</button>`);
+    if(['lista','produccion'].includes(o.estado) && t.producido>t.despachado) acciones.push(`<button onclick="cerrarModal(); abrirDespacho('${id}')" class="bg-sky-600 text-white font-semibold px-4 py-2.5 rounded-xl">Despachar</button>`);
+  }
+  if(esOficina()){
+    if(['nueva','cambio'].includes(o.estado)) acciones.push(`<button onclick="cerrarModal(); abrirNuevaOrden('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl">Editar</button>`);
+    if(!['despachada','recibida','cancelada'].includes(o.estado) && !t.despachado) acciones.push(`<button onclick="cancelarOrden('${id}')" class="text-rose-600 font-semibold px-3 py-2.5">Cancelar orden</button>`);
+  }
+  const filas = (o.items||[]).map(x=>{ const falta = o.estado==='recibida' && Number(x.recibido||0) < Number(x.cantidad||0);
+    return `<tr class="border-t border-slate-100"><td class="py-2 pr-2"><div class="font-medium">${esc(x.nombre)}</div>${x.codigo?`<div class="text-[11px] text-slate-400">Cód. ${esc(x.codigo)}</div>`:''}</td>
+    <td class="py-2 px-2 text-right num font-semibold">${cant(x.cantidad)} <span class="text-xs text-slate-400 font-normal">${esc(x.unidad)}</span></td>
+    <td class="py-2 px-2 text-right num">${cant(x.producido)}</td><td class="py-2 px-2 text-right num">${cant(x.despachado)}</td>
+    <td class="py-2 pl-2 text-right num ${falta?'text-rose-600 font-bold':''}">${cant(x.recibido)}</td></tr>`; }).join('');
+  const hist = (o.historial||[]).slice().reverse().map(h=>`<li class="flex gap-3"><span class="w-2 h-2 rounded-full mt-1.5 shrink-0 ${etapa(h.estado).color}"></span><div><span class="font-semibold">${esc(etapa(h.estado).corto||h.estado)}</span>${h.estado==='editada'?'Editada':''} <span class="text-slate-400">· ${esc(h.por||'')} · ${cuando(h.cuando)}</span>${h.nota?`<div class="text-slate-600">${esc(h.nota)}</div>`:''}</div></li>`).join('');
+  modal(`Orden N° ${o.numero}`, `
+    <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs font-bold px-2.5 py-1 rounded-full ${e.chip}">${e.corto}</span>${o.prioridad==='urgente'?'<span class="text-xs font-bold bg-rose-500 text-white px-2.5 py-1 rounded-full">Urgente</span>':''}
+      <span class="text-sm text-slate-500">${textoFecha(o)}${o.fechaEstimada?` · fábrica estima el ${fechaCorta(o.fechaEstimada)}`:''}</span></div>
+    ${o.notas?`<div class="text-sm bg-niebla rounded-xl p-3 mb-4">${esc(o.notas)}</div>`:''}
+    ${o.estado==='cambio'?`<div class="text-sm bg-amber-50 text-amber-900 rounded-xl p-3 mb-4"><b>La fábrica pide un cambio:</b> ${esc(o.pedidoCambio||'')}</div>`:''}
+    <div class="grid grid-cols-4 gap-2 mb-4 text-center">${[['Pedido',t.pedido],['Producido',t.producido],['Despachado',t.despachado],['Recibido',t.recibido]].map(([n,v],i)=>`<div class="rounded-xl p-2 ${i===0?'bg-niebla':'bg-brand-50'}"><div class="font-display font-extrabold text-xl num">${cant(v)}</div><div class="text-[11px] text-slate-500">${n}</div></div>`).join('')}</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-slate-400 uppercase"><th class="pb-1">Producto</th><th class="pb-1 px-2 text-right">Pedido</th><th class="pb-1 px-2 text-right">Producido</th><th class="pb-1 px-2 text-right">Despachado</th><th class="pb-1 pl-2 text-right">Recibido</th></tr></thead><tbody>${filas}</tbody></table></div>
+    ${acciones.length?`<div class="flex flex-wrap gap-2 mt-5">${acciones.join('')}</div>`:''}
+    <div class="mt-6"><div class="font-semibold text-sm mb-2">Historial</div><ul class="space-y-2 text-sm">${hist}</ul></div>`, 'sm:max-w-2xl');
+}
+async function cambiarEstado(id, estado, nota, extra){
+  try{ await db.collection('ordenes').doc(id).update(Object.assign({ estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(), historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:nota||'' }) }, extra||{}));
+    cerrarModal(); toast(`Orden ${etapa(estado).corto.toLowerCase()}.`); }
+  catch(e){ toast(motivoError(e),'err'); }
+}
+function aceptarOrden(id){
+  const o = ordenes.find(x=>x.id===id);
+  modal(`Aceptar orden N° ${o.numero}`, `<form onsubmit="event.preventDefault(); cambiarEstado('${id}','aceptada', $('aNota').value.trim(), { fechaEstimada: $('aFecha').value||null, pedidoCambio:null })" class="space-y-4">
+    <div><label class="lbl" for="aFecha">¿Para cuándo estiman tenerla?</label><input class="field" type="date" id="aFecha" value="${o.fechaRequerida||hoyKey()}"></div>
+    <div><label class="lbl" for="aNota">Comentario <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="aNota"></div>
+    <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Aceptar orden</button></form>`);
+}
+function pedirCambio(id){
+  const o = ordenes.find(x=>x.id===id);
+  modal(`Pedir un cambio · N° ${o.numero}`, `<form onsubmit="event.preventDefault(); const t=$('cNota').value.trim(); if(!t){ $('cErr').textContent='Contá qué hay que cambiar.'; return; } cambiarEstado('${id}','cambio', t, { pedidoCambio:t })" class="space-y-4">
+    <p class="text-sm text-slate-600">Por ejemplo: no llegan con la fecha, falta materia prima, proponen otra cantidad. La oficina lo ve y puede editar la orden.</p>
+    <textarea class="field" id="cNota" rows="3"></textarea><div id="cErr" class="text-sm text-rose-600"></div>
+    <button class="w-full bg-amber-500 text-white font-semibold py-2.5 rounded-xl">Enviar pedido de cambio</button></form>`);
+}
+function cancelarOrden(id){
+  const o = ordenes.find(x=>x.id===id);
+  modal(`Cancelar orden N° ${o.numero}`, `<form onsubmit="event.preventDefault(); cambiarEstado('${id}','cancelada', $('xNota').value.trim()||'Cancelada por la oficina')" class="space-y-4">
+    <div><label class="lbl" for="xNota">Motivo</label><input class="field" id="xNota"></div>
+    <button class="w-full bg-rose-600 text-white font-semibold py-2.5 rounded-xl">Cancelar orden</button></form>`);
+}
+function registrarAvance(id){
+  const o = ordenes.find(x=>x.id===id);
+  modal(`Producido · N° ${o.numero}`, `<form onsubmit="guardarAvance(event,'${id}')" class="space-y-3">
+    <p class="text-sm text-slate-600">Cargá cuánto hay producido en total de cada producto (no solo lo de hoy).</p>
+    ${o.items.map((x,i)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(x.nombre)}</div><div class="text-xs text-slate-500">Pedido: ${cant(x.cantidad)} ${esc(x.unidad)}</div></div>
+      <input id="av${i}" class="field num !w-28 text-right" inputmode="decimal" value="${x.producido||''}" placeholder="0"><span class="text-xs text-slate-500 w-14">${esc(x.unidad)}</span>
+      <button type="button" onclick="$('av${i}').value='${x.cantidad}'" class="text-xs font-semibold text-brand-700">Todo</button></div>`).join('')}
+    <label class="flex items-center gap-2 text-sm font-semibold pt-1"><input type="checkbox" id="avLista"> Ya está todo: marcar como lista en expedición</label>
+    <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Guardar</button></form>`, 'sm:max-w-xl');
+}
+async function guardarAvance(e, id){
+  e.preventDefault();
+  const o = ordenes.find(x=>x.id===id); const items = JSON.parse(JSON.stringify(o.items));
+  items.forEach((x,i)=>{ const v = Number(String($('av'+i).value).replace(',','.')); x.producido = isNaN(v)?0:Math.max(0,v); });
+  const lista = $('avLista').checked;
+  const estado = lista ? 'lista' : (o.estado==='aceptada' ? 'produccion' : o.estado);
+  try{ await db.collection('ordenes').doc(id).update({ items, estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+      historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:'Producido: '+items.map(x=>`${cant(x.producido)}/${cant(x.cantidad)} ${x.nombre}`).join(', ') }) });
+    cerrarModal(); toast('Avance guardado.'); }
+  catch(err){ toast(motivoError(err),'err'); }
+}
+
+/* ---------- DESPACHOS (fábrica) ---------- */
+let edDesp = null;
+function disponibles(){
+  // Lo producido que todavía no se despachó, por orden y producto
+  return ordenes.filter(o=>['produccion','lista','despachada'].includes(o.estado)).flatMap(o=>(o.items||[]).map((x,i)=>({ o, i, x, disp: Number(x.producido||0)-Number(x.despachado||0) }))).filter(r=>r.disp>0);
+}
+function abrirDespacho(ordenId){
+  const filas = disponibles().filter(r=>!ordenId || r.o.id===ordenId).concat(ordenId ? disponibles().filter(r=>r.o.id!==ordenId) : []);
+  if(!filas.length){ modal('Nada para despachar', '<p class="text-sm text-slate-600">No hay producción terminada esperando despacho. Primero cargá lo producido en cada orden.</p>'); return; }
+  edDesp = filas;
+  modal('Nuevo despacho', `<form onsubmit="guardarDespacho(event)" class="space-y-4">
+    <div><label class="lbl" for="dCamion">Camión o chofer</label><input class="field" id="dCamion" placeholder="Ej.: Camión 2 · Juan"></div>
+    <p class="text-sm text-slate-600">Cargá lo que <b>efectivamente se subió al camión</b>. Lo que no se cargue queda pendiente en expedición.</p>
+    <div class="space-y-2">${filas.map((r,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3">
+      <input type="checkbox" id="dk${k}" ${!ordenId||r.o.id===ordenId?'checked':''} class="w-5 h-5">
+      <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(r.x.nombre)}</div><div class="text-xs text-slate-500">Orden N° ${r.o.numero} · disponible ${cant(r.disp)} ${esc(r.x.unidad)}</div></div>
+      <input id="dc${k}" class="field num !w-24 text-right" inputmode="decimal" value="${r.disp}"><span class="text-xs text-slate-500 w-14">${esc(r.x.unidad)}</span></div>`).join('')}</div>
+    <div id="dErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button id="dBtn" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 rounded-xl">Confirmar despacho</button></form>`, 'sm:max-w-2xl');
+}
+async function guardarDespacho(e){
+  e.preventDefault();
+  const items = [];
+  for(let k=0;k<edDesp.length;k++){
+    if(!$('dk'+k).checked) continue;
+    const r = edDesp[k], v = Number(String($('dc'+k).value).replace(',','.'));
+    if(!(v>0)) continue;
+    if(v > r.disp + 1e-9){ $('dErr').textContent = `"${r.x.nombre}" (orden ${r.o.numero}): no podés despachar más de lo producido (${cant(r.disp)}).`; return; }
+    items.push({ ordenId:r.o.id, ordenNumero:r.o.numero, idx:r.i, prodId:r.x.prodId, nombre:r.x.nombre, unidad:r.x.unidad, cantidad:v, recibido:null });
+  }
+  if(!items.length){ $('dErr').textContent='Elegí al menos un producto con cantidad.'; return; }
+  const btn=$('dBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const ref = db.collection('despachos').doc();
+    const numero = await db.runTransaction(async tx=>{
+      const cRef = db.collection('contadores').doc('despachos'); const c = await tx.get(cRef);
+      const porOrden = {}; items.forEach(it=>{ (porOrden[it.ordenId] ||= []).push(it); });
+      const docs = {}; for(const oid of Object.keys(porOrden)){ docs[oid] = await tx.get(db.collection('ordenes').doc(oid)); }
+      const n = (c.exists ? c.data().ultimo : 0) + 1;
+      tx.set(cRef, { ultimo:n });
+      tx.set(ref, { numero:n, camion:$('dCamion').value.trim(), items, estado:'en-camino', creadoPor:yo(), creado:FV.serverTimestamp(), dia:hoyKey() });
+      for(const oid of Object.keys(porOrden)){
+        const od = docs[oid].data(); const its = od.items;
+        porOrden[oid].forEach(it=>{ its[it.idx].despachado = Number(its[it.idx].despachado||0) + it.cantidad; });
+        const todo = its.every(x=>Number(x.despachado||0) >= Number(x.cantidad||0));
+        tx.update(db.collection('ordenes').doc(oid), { items:its, estado: todo ? 'despachada' : od.estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+          historial: FV.arrayUnion({ estado: todo?'despachada':od.estado, por:yo(), cuando:new Date().toISOString(), nota:`Despacho N° ${n}: `+porOrden[oid].map(x=>`${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
+      }
+      return n;
+    });
+    cerrarModal(); toast(`Despacho N° ${numero} registrado. La oficina ya lo ve en camino.`); irTab('despachos');
+  }catch(e2){ console.error(e2); $('dErr').textContent=motivoError(e2); btn.disabled=false; btn.textContent='Confirmar despacho'; }
+}
+function tarjetaDespacho(d, accion){
+  const est = { 'en-camino':['En camino','bg-sky-100 text-sky-800'], 'recibido':['Recibido completo','bg-emerald-100 text-emerald-800'], 'diferencias':['Llegó con diferencias','bg-rose-100 text-rose-700'], 'revisado':['Diferencia revisada','bg-slate-100 text-slate-600'] }[d.estado] || ['',''];
+  return `<div class="bg-white rounded-2xl p-4 ${d.estado==='diferencias'?'ring-2 ring-rose-200':''}">
+    <div class="flex items-start justify-between gap-2"><div><div class="font-display font-extrabold text-lg">Despacho N° ${d.numero}</div><div class="text-xs text-slate-500">${esc(d.camion||'Sin camión indicado')} · salió ${cuando(d.creado)}</div></div>
+      <span class="text-xs font-bold px-2.5 py-1 rounded-full ${est[1]}">${est[0]}</span></div>
+    <div class="mt-3 divide-y divide-slate-100 text-sm">${d.items.map(it=>{ const dif = it.recibido!=null && Number(it.recibido) !== Number(it.cantidad);
+      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0 truncate">${esc(it.nombre)} <span class="text-xs text-slate-400">· orden ${it.ordenNumero}</span></span>
+        <span class="num whitespace-nowrap">${cant(it.cantidad)} ${esc(it.unidad)}${it.recibido!=null?` → <b class="${dif?'text-rose-600':'text-emerald-700'}">${cant(it.recibido)}</b>`:''}</span></div>`; }).join('')}</div>
+    ${d.notaRecepcion?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2">${esc(d.notaRecepcion)}</div>`:''}
+    ${d.resolucion?`<div class="text-xs text-slate-700 bg-emerald-50 rounded-lg p-2 mt-2"><b>Revisado:</b> ${esc(d.resolucion)} <span class="text-slate-400">· ${esc(d.revisadoPor||'')}</span></div>`:''}
+    ${d.recibidoPor?`<div class="text-xs text-slate-400 mt-2">Recibió ${esc(d.recibidoPor)} · ${cuando(d.recibidoEn)}</div>`:''}
+    ${accion||''}</div>`;
+}
+function vDespachos(){
+  const pend = disponibles();
+  const lista = despachos.slice().sort((a,b)=>(b.numero||0)-(a.numero||0));
+  return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Despachos</h1>
+        <p class="text-slate-500 mt-1">${pend.length?`Hay producción esperando en expedición: ${pend.map(r=>`${cant(r.disp)} ${esc(r.x.unidad)} ${esc(r.x.nombre)}`).slice(0,3).join(', ')}${pend.length>3?'…':''}`:'No hay producción esperando en expedición.'}</p></div>
+      ${esFabrica()?`<button onclick="abrirDespacho()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${pend.length?'':'disabled'}><i data-lucide="truck" class="w-4 h-4"></i>Nuevo despacho</button>`:''}
+    </div>
+    <div class="grid md:grid-cols-2 gap-4">${lista.map(d=>tarjetaDespacho(d)).join('') || '<div class="text-sm text-slate-400">Todavía no hay despachos.</div>'}</div>`;
+}
+
+/* ---------- RECEPCIÓN en la distribuidora (oficina) ---------- */
+function vRecepcion(){
+  const enCamino = despachos.filter(d=>d.estado==='en-camino').sort((a,b)=>(a.numero||0)-(b.numero||0));
+  const conDif = despachos.filter(d=>d.estado==='diferencias').sort((a,b)=>(b.numero||0)-(a.numero||0));
+  return `<h1 class="font-display text-4xl font-extrabold tracking-tight">Recepción</h1>
+    <p class="text-slate-500 mt-1 mb-6 max-w-2xl">Cuando llega el camión, contá lo que bajó y confirmalo acá. Si algo no llegó, queda marcado como diferencia para revisar con la fábrica.</p>
+    <h2 class="font-semibold mb-3">En camino (${enCamino.length})</h2>
+    <div class="grid md:grid-cols-2 gap-4 mb-8">${enCamino.map(d=>tarjetaDespacho(d, `<button onclick="abrirRecepcion('${d.id}')" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Recibir</button>`)).join('') || '<div class="text-sm text-slate-400">No hay despachos en camino.</div>'}</div>
+    ${conDif.length?`<h2 class="font-semibold mb-3 text-rose-600">Llegaron con diferencias (${conDif.length})</h2><div class="grid md:grid-cols-2 gap-4">${conDif.map(d=>tarjetaDespacho(d, `<button onclick="revisarDiferencia('${d.id}')" class="mt-4 w-full border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Marcar como revisada</button>`)).join('')}</div>`:''}`;
+}
+function revisarDiferencia(id){
+  const d = despachos.find(x=>x.id===id);
+  modal(`Diferencia del despacho N° ${d.numero}`, `<form onsubmit="event.preventDefault(); guardarRevision('${id}')" class="space-y-4">
+    <p class="text-sm text-slate-600">Anotá qué pasó, por ejemplo: "quedaron en expedición, vienen en el próximo camión" o "se rompieron en el viaje".</p>
+    <textarea class="field" id="rvNota" rows="3"></textarea><div id="rvErr" class="text-sm text-rose-600"></div>
+    <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Marcar como revisada</button></form>`);
+}
+async function guardarRevision(id){
+  const t = $('rvNota').value.trim(); if(!t){ $('rvErr').textContent='Anotá qué pasó.'; return; }
+  try{ await db.collection('despachos').doc(id).update({ estado:'revisado', resolucion:t, revisadoPor:yo(), revisadoEn:FV.serverTimestamp(), dia:hoyKey() }); cerrarModal(); toast('Diferencia marcada como revisada.'); }
+  catch(e){ $('rvErr').textContent=motivoError(e); }
+}
+function abrirRecepcion(id){
+  const d = despachos.find(x=>x.id===id);
+  modal(`Recibir despacho N° ${d.numero}`, `<form onsubmit="guardarRecepcion(event,'${id}')" class="space-y-3">
+    <p class="text-sm text-slate-600">Viene precargado con lo que dice la fábrica. Corregí lo que no coincida con lo que bajó del camión.</p>
+    ${d.items.map((it,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(it.nombre)}</div><div class="text-xs text-slate-500">Orden N° ${it.ordenNumero} · enviado ${cant(it.cantidad)} ${esc(it.unidad)}</div></div>
+      <input id="rc${k}" class="field num !w-24 text-right" inputmode="decimal" value="${it.cantidad}"><span class="text-xs text-slate-500 w-14">${esc(it.unidad)}</span></div>`).join('')}
+    <div><label class="lbl" for="rNota">Comentario <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="rNota" placeholder="Ej.: faltaron 2 bultos, una caja llegó rota"></div>
+    <div id="rErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button id="rBtn" class="w-full bg-brand-600 text-white font-semibold py-3 rounded-xl">Confirmar recepción</button></form>`, 'sm:max-w-xl');
+}
+async function guardarRecepcion(e, id){
+  e.preventDefault();
+  const d = despachos.find(x=>x.id===id); const items = JSON.parse(JSON.stringify(d.items));
+  for(let k=0;k<items.length;k++){ const v = Number(String($('rc'+k).value).replace(',','.')); if(isNaN(v)||v<0){ $('rErr').textContent='Revisá las cantidades.'; return; } items[k].recibido = v; }
+  const dif = items.some(it=>Number(it.recibido)!==Number(it.cantidad));
+  const btn=$('rBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    await db.runTransaction(async tx=>{
+      const porOrden = {}; items.forEach(it=>{ (porOrden[it.ordenId] ||= []).push(it); });
+      const docs = {}; for(const oid of Object.keys(porOrden)) docs[oid] = await tx.get(db.collection('ordenes').doc(oid));
+      tx.update(db.collection('despachos').doc(id), { items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rNota').value.trim(), dia:hoyKey() });
+      for(const oid of Object.keys(porOrden)){
+        if(!docs[oid].exists) continue;
+        const od = docs[oid].data(); const its = od.items;
+        porOrden[oid].forEach(it=>{ its[it.idx].recibido = Number(its[it.idx].recibido||0) + Number(it.recibido); });
+        const todoDespachado = its.every(x=>Number(x.despachado||0) >= Number(x.cantidad||0));
+        const estado = todoDespachado ? 'recibida' : od.estado;
+        tx.update(db.collection('ordenes').doc(oid), { items:its, estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+          historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:`Recepción del despacho N° ${d.numero}: `+porOrden[oid].map(x=>`${cant(x.recibido)} de ${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
+      }
+    });
+    cerrarModal(); toast(dif ? 'Recepción guardada con diferencias: quedan marcadas para revisar.' : 'Recepción confirmada: llegó todo.', dif?'info':'ok');
+  }catch(e2){ console.error(e2); $('rErr').textContent=motivoError(e2); btn.disabled=false; btn.textContent='Confirmar recepción'; }
+}
+
+/* ---------- PRODUCTOS DE FÁBRICA (oficina) ---------- */
+function vProductos(){
+  return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Productos de fábrica</h1>
+        <p class="text-slate-500 mt-1 max-w-2xl">Lo que se le puede pedir a la fábrica, con la unidad en que se pide cada uno. Pueden venir del catálogo de Ventas o ser propios de la fábrica.</p></div>
+      <div class="flex gap-2"><button onclick="abrirImportarCatalogo()" class="border border-slate-300 bg-white font-semibold px-4 py-2.5 rounded-xl">Traer del catálogo</button>
+        <button onclick="abrirProductoF(null)" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Producto</button></div>
+    </div>
+    <div class="bg-white rounded-2xl divide-y divide-slate-100">${productosF.map(p=>`<div class="px-4 py-3 flex items-center gap-3 ${p.activo===false?'opacity-50':''}">
+      <div class="flex-1 min-w-0"><div class="font-semibold">${esc(p.nombre)}</div><div class="text-xs text-slate-500">${p.codigo?`Cód. ${esc(p.codigo)} · del catálogo`:'Propio de fábrica'} · se pide en ${esc(p.unidad)}</div></div>
+      <button onclick="abrirProductoF('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+      <button onclick="borrarProductoF('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="Borrar"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('') || '<div class="p-8 text-center text-slate-400 text-sm">Todavía no hay productos.</div>'}</div>`;
+}
+function abrirProductoF(id){
+  const p = id ? productosF.find(x=>x.id===id) : null;
+  modal(p?'Editar producto':'Nuevo producto de fábrica', `<form onsubmit="guardarProductoF(event, ${p?`'${p.id}'`:'null'})" class="space-y-4">
+    <div><label class="lbl" for="pfN">Nombre</label><input class="field" id="pfN" value="${esc(p?p.nombre:'')}"></div>
+    <div class="grid grid-cols-2 gap-3"><div><label class="lbl" for="pfU">Se pide en</label><select class="field" id="pfU">${UNIDADES.map(u=>`<option ${u===(p?p.unidad:'bultos')?'selected':''}>${u}</option>`).join('')}</select></div>
+      <div><label class="lbl" for="pfC">Código <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="pfC" value="${esc(p?p.codigo||'':'')}"></div></div>
+    <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" id="pfA" ${!p||p.activo!==false?'checked':''}> Activo (se puede pedir)</label>
+    <div id="pfErr" class="text-sm text-rose-600"></div><button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Guardar</button></form>`);
+}
+async function guardarProductoF(e, id){
+  e.preventDefault(); const nombre=$('pfN').value.trim().toUpperCase(); if(!nombre){ $('pfErr').textContent='Poné el nombre.'; return; }
+  try{ const ref = id ? db.collection('prodProductos').doc(id) : db.collection('prodProductos').doc();
+    await ref.set({ nombre, unidad:$('pfU').value, codigo:$('pfC').value.trim(), activo:$('pfA').checked }, { merge:true }); cerrarModal(); toast('Producto guardado.'); }
+  catch(err){ $('pfErr').textContent=motivoError(err); }
+}
+async function borrarProductoF(id){
+  const p = productosF.find(x=>x.id===id); if(!p) return;
+  if(ordenes.some(o=>!['recibida','cancelada'].includes(o.estado) && (o.items||[]).some(x=>x.prodId===id))){ toast('Está en una orden abierta: desactivalo en vez de borrarlo.','info'); return; }
+  if(!confirm(`¿Borrar "${p.nombre}" de los productos de fábrica?`)) return;
+  try{ await db.collection('prodProductos').doc(id).delete(); toast('Producto borrado.','info'); }catch(err){ toast(motivoError(err),'err'); }
+}
+async function abrirImportarCatalogo(){
+  let lineas=[], prods=[];
+  try{ const [l,p] = await Promise.all([db.collection('lineas').get(), db.collection('productos').get()]); lineas=l.docs.map(datosDoc); prods=p.docs.map(datosDoc); }
+  catch(e){ modal('Sin acceso al catálogo', '<p class="text-sm text-slate-600">Para traer productos del catálogo de Ventas tu usuario necesita permiso en Ventas. Podés crearlos a mano con "+ Producto".</p>'); return; }
+  window.__cat = prods;
+  const ya = new Set(productosF.map(p=>p.codigo).filter(Boolean));
+  modal('Traer productos del catálogo', `<p class="text-sm text-slate-600 mb-3">Elegí las líneas que fabrica la fábrica. Después podés quitar los productos que no correspondan.</p>
+    <div class="space-y-2">${lineas.sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(l=>{ const n=prods.filter(p=>p.lineaId===l.id && p.activo!==false).length, ny=prods.filter(p=>p.lineaId===l.id && ya.has(p.id)).length;
+      return `<label class="flex items-center gap-3 bg-niebla rounded-xl px-3 py-2.5 cursor-pointer"><input type="checkbox" class="impL w-5 h-5" value="${l.id}"><span class="flex-1 font-semibold">${esc(l.nombre)}</span><span class="text-xs text-slate-500">${n} productos${ny?` · ${ny} ya están`:''}</span></label>`; }).join('')}</div>
+    <div class="mt-3"><label class="lbl" for="impU">Unidad en que se piden</label><select class="field" id="impU">${UNIDADES.map(u=>`<option>${u}</option>`).join('')}</select></div>
+    <button onclick="importarCatalogo()" class="mt-4 w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Agregar</button>`);
+}
+async function importarCatalogo(){
+  const ls = [...document.querySelectorAll('.impL:checked')].map(x=>x.value), unidad=$('impU').value;
+  const ya = new Set(productosF.map(p=>p.codigo).filter(Boolean));
+  const nuevos = (window.__cat||[]).filter(p=>ls.includes(p.lineaId) && p.activo!==false && !ya.has(p.id));
+  if(!nuevos.length){ toast('No hay productos nuevos para agregar.','info'); return; }
+  try{ for(let i=0;i<nuevos.length;i+=400){ const b=db.batch(); nuevos.slice(i,i+400).forEach(p=>b.set(db.collection('prodProductos').doc('c_'+p.id.replace(/[\/]/g,'-')), { nombre:p.nombre, unidad, codigo:p.id, activo:true })); await b.commit(); }
+    cerrarModal(); toast(`${nuevos.length} productos agregados.`); }
+  catch(e){ toast(motivoError(e),'err'); }
+}
+
+render();
+</script>
+</body>
+</html>
