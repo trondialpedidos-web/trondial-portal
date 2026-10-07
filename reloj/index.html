@@ -13,17 +13,27 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] } } } };</script>
+<script>tailwind.config = { theme: { extend: { colors: { uva:{ DEFAULT:'#6544E0', claro:'#B29FFB', oscuro:'#4B31B5' }, tinta:'#0D1324' }, fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] } } } };</script>
 <style>
   html,body{ height:100%; }
-  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); -webkit-user-select:none; user-select:none; touch-action:manipulation; }
+  body{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); -webkit-user-select:none; user-select:none; touch-action:manipulation; background:#0D1324; }
   .num{ font-variant-numeric: tabular-nums; }
-  .tecla{ font-family:'Bricolage Grotesque','Onest',sans-serif; font-size:2.1rem; font-weight:700; border-radius:1.25rem; background:#1e293b; color:#fff; height:4.5rem; }
-  .tecla:active{ background:#334155; transform:scale(.97); }
-  @media (min-height:800px){ .tecla{ height:5.25rem; } }
+  .tecla{ font-family:'Bricolage Grotesque','Onest',sans-serif; font-size:2.25rem; font-weight:700; border-radius:1.5rem; background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.08); color:#fff; height:4.75rem; transition:background .1s, transform .08s; }
+  .tecla:hover{ background:rgba(255,255,255,.1); }
+  .tecla:active{ background:rgba(255,255,255,.16); transform:scale(.96); }
+  .tecla:focus-visible{ outline:3px solid #B29FFB; outline-offset:2px; }
+  @media (min-height:820px){ .tecla{ height:5.5rem; } }
+  @keyframes sacudir{ 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-10px)} 40%,80%{transform:translateX(10px)} }
+  .sacudir{ animation:sacudir .35s ease-in-out; }
+  @keyframes vaciar{ from{transform:scaleX(1)} to{transform:scaleX(0)} }
+  .cuenta-atras{ transform-origin:left; animation:vaciar 5s linear forwards; }
+  @keyframes trazo{ to{ stroke-dashoffset:0; } }
+  .tilde path{ stroke-dasharray:60; stroke-dashoffset:60; animation:trazo .45s .1s ease-out forwards; }
+  @media (prefers-reduced-motion:reduce){ .sacudir,.cuenta-atras,.tilde path{ animation:none; stroke-dashoffset:0; } }
 </style>
 </head>
-<body class="bg-slate-950 text-white antialiased">
+<body class="text-white antialiased">
 <div id="root" class="min-h-full flex flex-col"></div>
 
 <script>
@@ -115,7 +125,7 @@ async function buscarFuncionario(){
   mensaje='Buscando…'; renderEntrada();
   try{
     const [t, e] = await Promise.all([ db.collection('tarjetas').doc(num).get(), db.collection('estadoFuncionario').doc(num).get() ]);
-    if(!t.exists || t.data().activo===false){ entrada=''; mensaje='Ese número no está habilitado. Revisalo o hablá con tu encargado.'; renderEntrada(); return; }
+    if(!t.exists || t.data().activo===false){ entrada=''; mensaje='Ese número no está habilitado. Revisalo o hablá con tu encargado.'; renderEntrada(true); return; }
     funcionario = { numero:num, ...t.data() }; estadoF = e.exists ? e.data() : null;
     // Si quedó "adentro" desde otro día (se olvidó la salida), lo normal hoy es una entrada
     const ult = estadoF && aFecha(estadoF.ultimaTs);
@@ -155,7 +165,7 @@ async function confirmarPin(){
     console.error(err);
     if(err && err.code==='permission-denied'){
       const l = intentos[num] || { n:0, hasta:0 }; l.n++; if(l.n>=5){ l.hasta = Date.now()+60000; l.n=0; } intentos[num]=l;
-      mensaje = 'PIN incorrecto.'; entrada=''; renderEntrada();
+      mensaje = 'PIN incorrecto. Probá de nuevo.'; entrada=''; renderEntrada(true);
     } else { mensaje = 'No se pudo registrar: sin conexión con el servidor. Probá de nuevo.'; entrada=''; renderEntrada(); }
   }
 }
@@ -167,71 +177,112 @@ function ubicacion(){
 }
 
 /* ---------- pantallas ---------- */
-function encabezado(){
-  return `<header class="flex items-center justify-between px-5 sm:px-8 pt-5">
-    <div><div class="font-display text-lg font-extrabold leading-none">trondial <span class="text-amber-400">reloj</span></div><div class="text-lg sm:text-xl font-extrabold">${esc(sucursal?sucursal.nombre:'')}</div></div>
-    <div class="text-right"><div id="hora" class="num font-display text-3xl sm:text-4xl font-extrabold"></div><div id="fecha" class="text-xs text-slate-400 capitalize"></div></div>
-  </header>`;
+const ICONO = {
+  entrada:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-9 h-9"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>',
+  salida:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-9 h-9"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
+  borrar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-8 h-8 mx-auto"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="M18 9l-6 6M12 9l6 6"/></svg>',
+  tilde:'<svg viewBox="0 0 52 52" class="tilde w-24 h-24 sm:w-28 sm:h-28"><circle cx="26" cy="26" r="25" fill="rgba(0,0,0,.14)"/><path d="M14 27l8 8 16-17" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+// Panel de la izquierda (arriba en el celular): el local y la hora en grande.
+function panelHora(){
+  return `<aside class="bg-uva text-white px-6 sm:px-10 py-5 lg:py-10 flex lg:flex-col justify-between items-center lg:items-start gap-4 lg:w-[44%] shrink-0">
+    <div><div class="font-display text-lg lg:text-xl font-extrabold leading-none">trondial <span class="text-white/60">reloj</span></div>
+      <div class="font-display text-2xl lg:text-4xl font-extrabold mt-1 lg:mt-3 leading-none">${esc(sucursal?sucursal.nombre:'')}</div></div>
+    <div class="text-right lg:text-left">
+      <div class="font-display font-extrabold leading-[.85] num tracking-tight"><span id="hora" class="text-5xl sm:text-6xl lg:text-[9.5rem]"></span><span id="seg" class="text-2xl lg:text-5xl text-white/50 ml-1"></span></div>
+      <div id="fecha" class="text-sm lg:text-2xl font-medium text-white/80 mt-1 lg:mt-4 first-letter:uppercase"></div>
+    </div>
+    <div class="hidden lg:block text-white/70 text-lg max-w-sm">Marcá tu entrada y tu salida con tu número de funcionario y tu PIN.</div>
+  </aside>`;
 }
-function teclado(etiquetaOk){
+function marco(contenido){ return `<div class="flex-1 flex flex-col lg:flex-row">${panelHora()}<main class="flex-1 flex flex-col items-center justify-center px-5 py-8 sm:py-10">${contenido}</main></div>`; }
+function teclado(etiquetaOk, claseOk){
   const t = k => `<button class="tecla" onclick="tecla('${k}')">${k}</button>`;
-  return `<div class="grid grid-cols-3 gap-3 w-full max-w-sm mx-auto">${['1','2','3','4','5','6','7','8','9'].map(t).join('')}
-    <button class="tecla !text-lg !bg-slate-800 text-slate-300" onclick="tecla('borrar')" aria-label="Borrar">⌫</button>${t('0')}
-    <button class="tecla !text-lg !bg-emerald-500 !text-slate-950" onclick="tecla('ok')">${etiquetaOk}</button></div>`;
+  return `<div class="grid grid-cols-3 gap-3 w-full max-w-[22rem]">${['1','2','3','4','5','6','7','8','9'].map(t).join('')}
+    <button class="tecla !text-white/70" onclick="tecla('borrar')" aria-label="Borrar">${ICONO.borrar}</button>${t('0')}
+    <button class="tecla !text-xl !border-0 ${claseOk}" onclick="tecla('ok')">${etiquetaOk}</button></div>`;
 }
 function render(){
   const r = $('root');
   const v = {
-    cargando: ()=>`<div class="m-auto text-slate-400">Conectando…</div>`,
-    error: ()=>`<div class="m-auto text-center px-6"><div class="text-2xl font-bold mb-2">Algo falló</div><div class="text-slate-400">${esc(mensaje)}</div><button onclick="location.reload()" class="mt-6 bg-white text-slate-900 font-bold px-6 py-3 rounded-xl">Reintentar</button></div>`,
-    sesionPortal: ()=>`<div class="m-auto text-center px-6 max-w-md"><div class="text-2xl font-bold mb-2">Este navegador tiene una sesión del portal abierta</div>
-      <div class="text-slate-400">Para usar este equipo como reloj del local hay que cerrarla. Si es tu equipo personal, no lo uses como reloj.</div>
-      <button onclick="auth.signOut().then(()=>location.reload())" class="mt-6 bg-white text-slate-900 font-bold px-6 py-3 rounded-xl">Cerrar sesión y usar como reloj</button></div>`,
-    emparejar: ()=>`<div class="m-auto text-center px-6 max-w-lg">
-      <div class="font-display text-2xl font-extrabold mb-4">trondial <span class="text-amber-400">reloj</span></div>
-      <div class="text-2xl font-extrabold">Este equipo todavía no está activado</div>
-      <div class="text-slate-400 mt-2">El administrador tiene que activarlo desde <b>Portal → Personal → Equipos</b> con este código:</div>
-      <div class="num text-6xl sm:text-7xl font-black tracking-[.2em] text-amber-400 my-8">${esc(codigo.slice(0,3))} ${esc(codigo.slice(3))}</div>
-      <div class="text-sm text-slate-500">La pantalla se actualiza sola cuando lo activen.</div></div>`,
-    inactivo: ()=>`<div class="m-auto text-center px-6"><div class="text-2xl font-bold mb-2">Este equipo está desactivado</div><div class="text-slate-400">Hablá con el administrador.</div></div>`,
-    numero: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center gap-6 px-5 py-6">
-      <div class="text-center"><div class="text-xl sm:text-2xl font-bold">Ingresá tu número de funcionario</div>
-        <div id="visor" class="num text-5xl font-black h-16 mt-4 tracking-widest"></div><div id="msg" class="min-h-[1.5rem] text-amber-300 font-semibold"></div></div>
-      ${teclado('Seguir')}</main>`,
-    accion: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center items-center gap-6 px-5 py-6 text-center">
-      <div><div class="text-slate-400">Hola,</div><div class="font-display text-3xl sm:text-5xl font-extrabold">${esc(funcionario.nombre)}</div></div>
-      <div class="grid sm:grid-cols-2 gap-4 w-full max-w-xl">
-        <button onclick="elegirTipo('entrada')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='entrada'?'bg-emerald-500 text-slate-950 ring-4 ring-emerald-300':'bg-slate-800 text-slate-300'}">ENTRADA</button>
-        <button onclick="elegirTipo('salida')" class="rounded-3xl py-8 text-3xl font-black ${tipoElegido==='salida'?'bg-rose-500 text-white ring-4 ring-rose-300':'bg-slate-800 text-slate-300'}">SALIDA</button>
+    cargando: ()=>`<div class="m-auto text-white/50 font-medium">Conectando…</div>`,
+    error: ()=>`<div class="m-auto text-center px-6 max-w-lg"><div class="font-display text-3xl font-extrabold mb-3">No se pudo conectar</div><div class="text-white/70 text-lg">${esc(mensaje)}</div>
+      <button onclick="location.reload()" class="mt-8 bg-white text-tinta font-bold text-lg px-7 py-3.5 rounded-2xl">Reintentar</button></div>`,
+    sesionPortal: ()=>`<div class="m-auto text-center px-6 max-w-lg"><div class="font-display text-3xl font-extrabold mb-3">Este navegador tiene una sesión del portal abierta</div>
+      <div class="text-white/70 text-lg">Para usar este equipo como reloj del local hay que cerrarla. Si es tu equipo personal, no lo uses como reloj.</div>
+      <button onclick="auth.signOut().then(()=>location.reload())" class="mt-8 bg-white text-tinta font-bold text-lg px-7 py-3.5 rounded-2xl">Cerrar sesión y usar como reloj</button></div>`,
+    emparejar: ()=>`<div class="m-auto text-center px-6 max-w-xl">
+      <div class="font-display text-2xl font-extrabold mb-8">trondial <span class="text-uva-claro">reloj</span></div>
+      <div class="font-display text-3xl sm:text-4xl font-extrabold">Este equipo todavía no está activado</div>
+      <div class="text-white/70 text-lg mt-3">Activalo desde Portal, en Personal → Equipos, con este código:</div>
+      <div class="flex justify-center gap-2 sm:gap-3 my-10">${codigo.split('').map((c,i)=>`<span class="w-14 h-20 sm:w-20 sm:h-28 rounded-2xl bg-white/[.06] border border-white/10 flex items-center justify-center font-display text-5xl sm:text-7xl font-extrabold text-uva-claro ${i===3?'ml-3 sm:ml-5':''}">${esc(c)}</span>`).join('')}</div>
+      <div class="text-white/50">La pantalla cambia sola cuando lo activen.</div></div>`,
+    inactivo: ()=>`<div class="m-auto text-center px-6"><div class="font-display text-3xl font-extrabold mb-3">Este equipo está desactivado</div><div class="text-white/70 text-lg">Hablá con el administrador para volver a activarlo.</div></div>`,
+    numero: ()=>marco(`
+      <div class="text-center w-full max-w-[22rem]"><div class="text-white/60 text-lg font-medium">Número de funcionario</div>
+        <div id="visor" class="font-display num text-6xl sm:text-7xl font-extrabold h-20 sm:h-24 mt-2 flex items-center justify-center tracking-wide"></div>
+        <div id="msg" class="min-h-[3rem] text-amber-300 font-semibold flex items-center justify-center"></div></div>
+      ${teclado('Seguir','!bg-white !text-tinta hover:!bg-white/90')}`),
+    accion: ()=>marco(`
+      <div class="text-center mb-8"><div class="text-white/60 text-lg font-medium">Hola,</div><div class="font-display text-4xl sm:text-5xl font-extrabold leading-tight">${esc(funcionario.nombre)}</div></div>
+      <div class="grid sm:grid-cols-2 gap-4 w-full max-w-2xl">
+        ${['entrada','salida'].map(t=>{ const sug = tipoElegido===t, verde = t==='entrada';
+          return `<button onclick="elegirTipo('${t}')" class="relative rounded-[2rem] p-6 sm:p-8 text-left transition-transform active:scale-[.98] ${sug ? (verde?'bg-emerald-400 text-tinta':'bg-rose-500 text-white') : 'bg-white/[.06] border border-white/10 text-white/80'}">
+            ${sug?`<span class="absolute top-4 right-4 text-xs font-bold rounded-full px-2.5 py-1 ${verde?'bg-tinta/15':'bg-black/20'}">Lo que te toca</span>`:''}
+            ${ICONO[t]}<div class="font-display text-4xl font-extrabold mt-6">${verde?'Entrada':'Salida'}</div><div class="font-medium mt-1 ${sug?'opacity-80':'text-white/50'}">${verde?'Empiezo mi turno':'Termino mi turno'}</div></button>`; }).join('')}
       </div>
-      <button onclick="reiniciar()" class="text-slate-400 font-semibold underline">No soy yo</button></main>`,
-    pin: ()=>`${encabezado()}<main class="flex-1 flex flex-col justify-center gap-6 px-5 py-6">
-      <div class="text-center"><div class="text-slate-400">${esc(funcionario.nombre)} · <b class="${tipoElegido==='entrada'?'text-emerald-400':'text-rose-400'}">${tipoElegido==='entrada'?'ENTRADA':'SALIDA'}</b></div>
-        <div class="text-xl sm:text-2xl font-bold mt-1">Ingresá tu PIN</div>
-        <div id="visor" class="num text-5xl font-black h-16 mt-4 tracking-[.4em]"></div><div id="msg" class="min-h-[1.5rem] text-amber-300 font-semibold"></div></div>
-      ${teclado('Marcar')}<button onclick="reiniciar()" class="text-slate-400 font-semibold underline mx-auto">Cancelar</button></main>`,
-    ok: ()=>`<div class="flex-1 flex flex-col items-center justify-center text-center px-6 ${detalleOk.tipo==='entrada'?'bg-emerald-500 text-slate-950':'bg-rose-500 text-white'}">
-      <div class="text-2xl font-bold opacity-80">${detalleOk.tipo==='entrada'?'Entrada registrada':'Salida registrada'}</div>
-      <div class="num font-display text-8xl sm:text-9xl font-extrabold my-4">${hora(detalleOk.hora)}</div>
-      <div class="font-display text-3xl font-extrabold">${esc(detalleOk.nombre)}</div><div class="text-lg font-semibold opacity-80 mt-1">${esc(sucursal?sucursal.nombre:'')}</div>
-      ${detalleOk.lejos?'<div class="mt-6 bg-black/20 rounded-xl px-4 py-2 font-semibold">Ubicación lejos del local: quedó registrado para revisar.</div>':''}
-      <button onclick="reiniciar()" class="mt-10 bg-black/20 font-bold px-6 py-3 rounded-xl">Listo</button></div>`,
+      <button onclick="reiniciar()" class="mt-8 text-white/60 hover:text-white font-semibold text-lg">No soy yo</button>`),
+    pin: ()=>{ const verde = tipoElegido==='entrada';
+      return marco(`
+      <div class="text-center w-full max-w-[22rem]"><div class="text-white/60 font-medium">${esc(funcionario.nombre)}</div>
+        <div class="inline-flex items-center gap-2 mt-2 rounded-full px-3 py-1 text-sm font-bold ${verde?'bg-emerald-400/15 text-emerald-300':'bg-rose-500/15 text-rose-300'}">${verde?'Entrada':'Salida'}</div>
+        <div class="font-display text-2xl font-extrabold mt-4">Tu PIN</div>
+        <div id="visor" class="flex justify-center gap-4 h-16 items-center mt-2"></div>
+        <div id="msg" class="min-h-[3rem] text-amber-300 font-semibold flex items-center justify-center"></div></div>
+      ${teclado(verde?'Marcar':'Marcar', verde?'!bg-emerald-400 !text-tinta hover:!bg-emerald-300':'!bg-rose-500 !text-white hover:!bg-rose-400')}
+      <button onclick="reiniciar()" class="mt-6 text-white/60 hover:text-white font-semibold text-lg">Cancelar</button>`); },
+    ok: ()=>{ const verde = detalleOk.tipo==='entrada';
+      return `<div class="flex-1 flex flex-col items-center justify-center text-center px-6 relative ${verde?'bg-emerald-400 text-tinta':'bg-rose-500 text-white'}">
+      ${ICONO.tilde}
+      <div class="font-display text-2xl sm:text-3xl font-bold mt-5 opacity-80">${verde?'Entrada registrada':'Salida registrada'}</div>
+      <div class="font-display num text-8xl sm:text-[10rem] font-extrabold leading-none my-3 tracking-tight">${hora(detalleOk.hora)}</div>
+      <div class="font-display text-3xl sm:text-4xl font-extrabold">${esc(detalleOk.nombre)}</div>
+      <div class="text-lg font-semibold opacity-75 mt-1">${esc(sucursal?sucursal.nombre:'')}</div>
+      ${detalleOk.lejos?'<div class="mt-6 bg-black/20 rounded-2xl px-5 py-3 font-semibold">La ubicación quedó lejos del local: se registró para revisar.</div>':''}
+      <button onclick="reiniciar()" class="mt-10 ${verde?'bg-tinta text-white':'bg-white text-rose-600'} font-bold text-lg px-8 py-3.5 rounded-2xl">Listo</button>
+      <div class="absolute bottom-0 left-0 right-0 h-2 ${verde?'bg-tinta/15':'bg-black/20'}"><div class="cuenta-atras h-full ${verde?'bg-tinta/50':'bg-white/60'}"></div></div></div>`; },
   };
   r.innerHTML = (v[pantalla]||v.cargando)();
   renderEntrada(); tickReloj();
 }
-function renderEntrada(){
+function renderEntrada(error){
   const vis = $('visor'), m = $('msg');
-  if(vis) vis.textContent = pantalla==='pin' ? '•'.repeat(entrada.length) : entrada;
+  if(vis){
+    if(pantalla==='pin'){
+      const n = Math.max(4, entrada.length);
+      vis.innerHTML = Array.from({length:n}, (_,i)=>`<span class="w-5 h-5 rounded-full ${i<entrada.length?'bg-white':'border-2 border-white/30'}"></span>`).join('');
+    } else vis.innerHTML = entrada ? esc(entrada) : '<span class="text-white/20">—</span>';
+    if(error){ vis.classList.remove('sacudir'); void vis.offsetWidth; vis.classList.add('sacudir'); }
+  }
   if(m) m.textContent = mensaje;
 }
 function tickReloj(){
   const d = new Date();
-  if($('hora')) $('hora').textContent = d.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  if($('hora')) $('hora').textContent = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  if($('seg')) $('seg').textContent = String(d.getSeconds()).padStart(2,'0');
   if($('fecha')) $('fecha').textContent = d.toLocaleDateString('es-UY',{weekday:'long', day:'numeric', month:'long'});
 }
 setInterval(tickReloj, 1000);
 document.addEventListener('keydown', e=>{
+  // En la pantalla de Entrada/Salida: Enter elige la sugerida, flechas o E/S cambian
+  if(pantalla==='accion'){
+    if(e.key==='Enter') elegirTipo(tipoElegido);
+    else if(e.key==='ArrowLeft' || e.key.toLowerCase()==='e'){ tipoElegido='entrada'; render(); }
+    else if(e.key==='ArrowRight' || e.key.toLowerCase()==='s'){ tipoElegido='salida'; render(); }
+    else if(e.key==='Escape') reiniciar();
+    return;
+  }
+  if(pantalla==='ok' && (e.key==='Enter' || e.key==='Escape')){ reiniciar(); return; }
   if(!['numero','pin'].includes(pantalla)) return;
   if(/^[0-9]$/.test(e.key)) tecla(e.key);
   else if(e.key==='Backspace') tecla('borrar');
