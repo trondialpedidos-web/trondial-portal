@@ -9,7 +9,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Cpath d='M18 20h28v7H35.5v19h-7V27H18z' fill='white'/%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -17,8 +17,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script>
   tailwind.config = { theme: { extend: {
-    fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
-    colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+    fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
+    colors: { tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, brand: { 50:'#FFF4EC',100:'#FFE6D4',200:'#FFC9A6',300:'#FFA46E',400:'#F7843F',500:'#EE6A24',600:'#D95A18',700:'#B8481A',800:'#933A16',900:'#742F14' } },
     boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
   } } };
 </script>
@@ -32,20 +32,30 @@
   .foto{ background:#f1f5f9; object-fit:contain; }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+<body class="bg-niebla text-tinta antialiased min-h-screen">
 
-<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-    <div class="flex items-center gap-2.5">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-brand-700 flex items-center justify-center text-white shadow-sm shrink-0"><i data-lucide="tag" class="w-5 h-5"></i></div>
-      <div>
-        <div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">VENTAS</span></div>
-        <div class="text-[11px] text-slate-400 leading-tight">Catálogo y precios</div>
+<header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
+      <span class="text-tinta/25 text-xl font-light" aria-hidden="true">/</span>
+      <div class="relative">
+        <button type="button" onclick="menuModulos(event)" class="flex items-center gap-2 rounded-xl pl-1 pr-2 py-1 hover:bg-white" aria-haspopup="true" aria-label="Cambiar de módulo">
+          <span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span>
+          <span class="font-display font-bold text-lg text-tinta">Ventas</span><i data-lucide="chevron-down" class="w-4 h-4 text-tinta/40"></i></button>
+        <div id="menuMod" class="hidden absolute left-0 mt-2 w-60 bg-white rounded-2xl shadow-[0_24px_48px_-16px_rgba(18,26,47,.3)] p-2 z-50">
+          <a href="../" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla"><span class="w-9 h-9 rounded-xl bg-tinta text-white flex items-center justify-center"><i data-lucide="layout-grid" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Inicio del portal</span></a>
+          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
+        </div>
       </div>
     </div>
     <div id="sessionBar" class="flex items-center gap-3"></div>
   </div>
 </header>
+<script>
+function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
+document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
+</script>
 
 <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6" id="root"></main>
 <div id="modalRoot"></div>
@@ -114,6 +124,14 @@ function modal(titulo, cuerpo, ancho){
 function cerrarModal(){ $('modalRoot').innerHTML=''; }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
 const esAdmin = () => nivel === 'admin';
+// Traduce los errores de Firebase a algo entendible
+function motivoError(e){
+  const c = (e && e.code) || '';
+  if(c==='permission-denied') return 'Firebase no dio permiso. Revisá que estén publicadas las reglas de Firestore más nuevas.';
+  if(c==='unavailable') return 'Sin conexión con el servidor. Revisá internet y probá de nuevo.';
+  if(c==='invalid-argument' || c==='resource-exhausted') return 'Los datos son demasiado grandes (probá con una imagen más liviana).';
+  return 'No se pudo guardar' + (c ? ' ('+c+')' : '') + '.';
+}
 
 /* ===================== PRECIOS ===================== */
 // Cada precio de lista sale del costo con el % de su línea: precio = costo × (1 + %).
@@ -201,7 +219,7 @@ function vSinAcceso(){
 }
 function vTabs(){
   const nVig = promosVigentes().length;
-  const t = (id, txt, icon, badge, color) => `<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-slate-900':(color||'bg-rose-600 text-white')}">${badge}</span>`:''}</button>`;
+  const t = (id, txt, icon, badge, color) => `<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-slate-900':(color||'bg-rose-600 text-white')}">${badge}</span>`:''}</button>`;
   if(!esAdmin()) return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('ofertas','Ofertas vigentes','badge-percent', nVig, 'bg-amber-400 text-amber-950')}</nav>`;
   return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('catalogo','Catálogo','package')}${t('ofertas','Ofertas y promociones','badge-percent', nVig, 'bg-amber-400 text-amber-950')}${t('lineas','Líneas y márgenes','percent')}${t('pendientes','Cargar en el sistema','clipboard-check', pendientes.length)}${t('importar','Importar listas','file-spreadsheet')}</nav>`;
 }
@@ -240,7 +258,7 @@ function vCatalogo(){
     : (nuevos ? `<button onclick="filtro.solo=filtro.solo==='nuevos'?'':'nuevos';render()" class="px-3 py-2 rounded-xl text-sm font-semibold whitespace-nowrap ${filtro.solo==='nuevos'?'bg-amber-500 text-white':'bg-amber-50 text-amber-800'}">Nuevos (${nuevos})</button>` : '');
   let html = `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Catálogo</h1>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Catálogo</h1>
         <p class="text-slate-500 text-sm mt-1">${productos.filter(p=>p.activo!==false).length} productos · precios con IVA incluido</p></div>
     </div>
     ${(()=>{ const v = promosVigentes(); if(!v.length) return '';
@@ -495,7 +513,7 @@ async function guardarProducto(e, id){
     await b.commit();
     if(fotoNueva !== undefined) fotosCache[codigo] = fotoNueva || null;
     cerrarModal(); toast(cambian && p ? 'Guardado. Quedó en "Cargar en el sistema".' : 'Producto guardado.');
-  }catch(e2){ console.error(e2); err('No se pudo guardar. Revisá la conexión.'); btn.disabled=false; btn.textContent='Guardar'; }
+  }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Guardar'; }
 }
 
 /* ---------- LÍNEAS Y MÁRGENES (admin) ---------- */
@@ -521,7 +539,7 @@ function vLineas(){
   }).join('');
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Líneas y márgenes</h1>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Líneas y márgenes</h1>
       <p class="text-slate-500 text-sm mt-1 max-w-2xl">Cada precio sale del costo: <b>precio = costo × (1 + % de la lista)</b>. Los márgenes son por línea y solo los ven los administradores.</p></div>
       <button onclick="abrirNuevaLinea()" class="border border-slate-300 hover:border-brand-400 font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Línea</button>
     </div>
@@ -671,7 +689,7 @@ function vPendientes(){
     </div>`).join('');
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Cargar en el sistema</h1>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Cargar en el sistema</h1>
       <p class="text-slate-500 text-sm mt-1 max-w-2xl">Precios que cambiaron en el portal y todavía hay que cargar en el sistema de facturación. Marcá cada uno cuando lo cargues.</p></div>
       ${lista.length?`<div class="flex gap-2"><button onclick="copiarPendientes()" class="border border-slate-300 font-semibold px-4 py-2 rounded-xl inline-flex items-center gap-2"><i data-lucide="copy" class="w-4 h-4"></i>Copiar lista</button>
         <button onclick="marcarTodosCargados()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-xl">Ya cargué todo</button></div>`:''}
@@ -697,7 +715,7 @@ function vImportar(){
   const r = importacion;
   return `
     <div class="max-w-3xl">
-      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Importar listas</h1>
+      <h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Importar listas</h1>
       <p class="text-slate-500 text-sm mt-1 mb-6">Elegí los tres archivos de Excel (Lista 1, 4 y 6). Cada solapa se toma como una línea y los productos se cruzan por código. Los archivos se leen en tu computadora: no se suben a ningún lado.</p>
       <label class="block border-2 border-dashed border-slate-300 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer bg-white">
         <i data-lucide="file-spreadsheet" class="w-8 h-8 text-slate-400 mx-auto mb-2"></i>
@@ -909,7 +927,7 @@ function vOfertas(){
   const vacioVig = `<div class="bg-white border border-dashed border-slate-300 rounded-2xl p-8 text-center text-slate-500 text-sm mb-8">No hay ofertas vigentes hoy.${esAdmin()?' Creá una con "Nueva promoción".':''}</div>`;
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Ofertas y promociones</h1>
+      <div><h1 class="font-display text-4xl font-extrabold text-tinta tracking-tight">Ofertas y promociones</h1>
         <p class="text-slate-500 text-sm mt-1">${vig.length ? `${vig.length} vigente${vig.length>1?'s':''} hoy` : 'Sin ofertas vigentes hoy'}${prox.length?` · ${prox.length} próxima${prox.length>1?'s':''}`:''}</p></div>
       ${esAdmin()?`<button onclick="abrirPromo(null)" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nueva promoción</button>`:''}
     </div>
@@ -1139,7 +1157,7 @@ async function guardarPromo(e){
     if(flyer!==undefined) flyersCache[ref.id] = flyer || null;
     cerrarModal(); toast(datos.publicada ? 'Promoción guardada y visible para los vendedores.' : 'Guardada como borrador.');
     if(tab!=='ofertas') irTab('ofertas');
-  }catch(e2){ console.error(e2); err('No se pudo guardar. Revisá la conexión.'); btn.disabled=false; btn.textContent='Guardar promoción'; }
+  }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Guardar promoción'; }
 }
 async function borrarPromo(){
   if(!edPromo.id || !confirm('¿Eliminar esta promoción? No se puede deshacer.')) return;
