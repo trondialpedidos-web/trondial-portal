@@ -9,7 +9,7 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e5691'/%3E%3Cpath d='M18 20h28v7H35.5v19h-7V27H18z' fill='white'/%3E%3C/svg%3E">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -17,8 +17,8 @@
 <script>
   tailwind.config = {
     theme: { extend: {
-      fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
-      colors: { brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
+      fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
+      colors: { tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, brand: { 50:'#eff8ff',100:'#dcf0ff',200:'#b6e2ff',300:'#7cc8fb',400:'#3aa8f0',500:'#1487d8',600:'#0c6cb3',700:'#0e5691',800:'#134472',900:'#13395f' } },
       boxShadow: { soft:'0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06)' }
     } }
   };
@@ -30,18 +30,13 @@
   .lbl{ display:block; font-size:.75rem; font-weight:600; color:#64748b; margin-bottom:.3rem; }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen">
+<body class="bg-niebla text-tinta antialiased min-h-screen">
 
-<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-    <button onclick="irA('inicio')" class="flex items-center gap-2.5 text-left">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-brand-700 flex items-center justify-center text-white shadow-sm shrink-0">
-        <i data-lucide="layout-grid" class="w-5 h-5"></i>
-      </div>
-      <div>
-        <div class="font-extrabold text-slate-900 leading-tight tracking-tight">TRONDIAL <span class="text-brand-600">PORTAL</span></div>
-        <div class="text-[11px] text-slate-400 leading-tight">Herramientas de trabajo</div>
-      </div>
+<header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+    <button onclick="irA('inicio')" class="flex items-center gap-3 text-left" aria-label="Ir al inicio">
+      <span class="font-display font-extrabold text-[26px] leading-none tracking-tight text-tinta">trondial</span>
+      <span class="flex gap-1" aria-hidden="true"><i class="w-2.5 h-2.5 rounded-full bg-menta"></i><i class="w-2.5 h-2.5 rounded-full bg-mandarina"></i><i class="w-2.5 h-2.5 rounded-full bg-uva"></i></span>
     </button>
     <div id="sessionBar" class="flex items-center gap-3"></div>
   </div>
@@ -97,6 +92,7 @@ let migracion = { estado:'inicial', conteos:null, log:[] };
 
 /* ===================== UTILIDADES ===================== */
 const $ = id => document.getElementById(id);
+function iniciales(n){ return String(n||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function iconos(){ if(window.lucide) lucide.createIcons(); }
 function toast(msg, tipo){
@@ -274,23 +270,23 @@ function render(){
     inactivo:vInactivo, inicio:vInicio, usuarios:vUsuarios, migracion:vMigracion };
   r.innerHTML = (vistas[vista]||vCargando)();
   iconos();
+  if(vista==='inicio' && resumen && !window.__animado){ window.__animado = true; animarNumeros(); }
 }
 function renderSessionBar(){
   const el = $('sessionBar');
   if(!usuario || !perfil){ el.innerHTML = usuario ? `<button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i>Salir</button>` : ''; return; }
   el.innerHTML = `
-    <span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
-      <i data-lucide="${perfil.dueno?'shield-check':'user'}" class="w-3.5 h-3.5"></i>${esc(perfil.nombre)}</span>
-    <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i>Cerrar sesión</button>`;
+    <span class="hidden sm:flex items-center gap-2 text-sm font-semibold text-tinta/70"><span class="w-8 h-8 rounded-full bg-tinta text-white text-xs font-bold flex items-center justify-center">${esc(iniciales(perfil.nombre))}</span>${esc(perfil.nombre)}</span>
+    <button onclick="salir()" class="text-sm font-semibold text-tinta/60 hover:text-rose-600 flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-white"><i data-lucide="log-out" class="w-4 h-4"></i><span class="hidden sm:inline">Salir</span></button>`;
 }
 function tarjetaCentro(contenido){
-  return `<div class="max-w-md mx-auto py-8 sm:py-14"><div class="bg-white border border-slate-200 shadow-soft rounded-2xl p-6 sm:p-8">${contenido}</div></div>`;
+  return `<div class="max-w-md mx-auto py-8 sm:py-14"><div class="bg-white rounded-[28px] p-6 sm:p-9 shadow-[0_1px_0_rgba(18,26,47,.04),0_24px_48px_-24px_rgba(18,26,47,.25)]">${contenido}</div></div>`;
 }
 function vCargando(){ return `<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>`; }
 
 function vLogin(){
   return tarjetaCentro(`
-    <h1 class="text-2xl font-extrabold text-slate-900">Ingresar</h1>
+    <h1 class="font-display text-3xl font-extrabold tracking-tight">Ingresar</h1>
     <p class="text-sm text-slate-500 mt-1 mb-6">Entrá una sola vez: la sesión queda guardada en este dispositivo.</p>
     <form onsubmit="ingresar(event)" class="space-y-4" novalidate>
       <div><label class="lbl" for="lEmail">Correo</label><input class="field" id="lEmail" type="email" autocomplete="email" required></div>
@@ -306,7 +302,7 @@ function vLogin(){
 }
 function vRegistro(){
   return tarjetaCentro(`
-    <h1 class="text-2xl font-extrabold text-slate-900">Primera vez</h1>
+    <h1 class="font-display text-3xl font-extrabold tracking-tight">Primera vez</h1>
     <p class="text-sm text-slate-500 mt-1 mb-6">Usá el correo con el que te invitaron y elegí una contraseña. Después te llega un mail para confirmar que el correo es tuyo.</p>
     <form onsubmit="registrar(event)" class="space-y-4" novalidate>
       <div><label class="lbl" for="rEmail">Correo</label><input class="field" id="rEmail" type="email" autocomplete="email" required></div>
@@ -320,7 +316,7 @@ function vRegistro(){
 function vVerificar(){
   return tarjetaCentro(`
     <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center mb-4"><i data-lucide="mail-check" class="w-6 h-6"></i></div>
-    <h1 class="text-2xl font-extrabold text-slate-900">Confirmá tu correo</h1>
+    <h1 class="font-display text-3xl font-extrabold tracking-tight">Confirmá tu correo</h1>
     <p class="text-sm text-slate-600 mt-2">Te mandamos un mail a <b>${esc(usuario && usuario.email)}</b>. Abrilo, tocá el link y volvé acá. Si no lo ves, revisá el correo no deseado.</p>
     <button onclick="yaVerifique()" class="w-full mt-6 bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Ya lo confirmé</button>
     <div class="flex justify-between mt-4 text-sm">
@@ -344,45 +340,118 @@ function vInactivo(){
     <button onclick="salir()" class="w-full mt-6 border border-slate-300 font-semibold py-2.5 rounded-xl">Cerrar sesión</button>`);
 }
 
+/* ===================== INICIO: "hoy en Trondial" ===================== */
+// Cada módulo muestra su dato del día, según los permisos de la persona.
+let resumen = null, resumenCargando = false, resumenHora = 0;
+function hoyK(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function diasHasta(k){ const [y,m,d]=k.split('-').map(Number); const a=new Date(); a.setHours(0,0,0,0); return Math.round((new Date(y,m-1,d)-a)/86400000); }
+async function cargarResumen(){
+  if(resumenCargando || (resumen && Date.now()-resumenHora < 60000)) return;
+  resumenCargando = true;
+  const p = perfil.permisos||{}, hoy = hoyK(), r = {};
+  const tareas = [];
+  const nivelEnvios = perfil.dueno ? 'admin' : p.envios;
+  if(nivelEnvios){
+    let q = db.collection('pedidos').where('fechaEnvio','==',hoy);
+    if(nivelEnvios==='repartidor') q = q.where('repartidorId','==',perfil.repartidorId||'-');
+    tareas.push(q.get().then(s=>{ const e={ total:s.size, entregado:0, encamino:0, pendiente:0, noentregado:0 };
+      s.docs.forEach(d=>{ const x=d.data().estado||'pendiente'; e[x]=(e[x]||0)+1; }); r.envios=e; }).catch(()=>{ r.envios=null; }));
+  }
+  const nivelVentas = perfil.dueno ? 'admin' : p.ventas;
+  if(nivelVentas){
+    const q = nivelVentas==='admin' ? db.collection('promociones') : db.collection('promociones').where('publicada','==',true);
+    tareas.push(q.get().then(s=>{ const v = s.docs.map(d=>d.data()).filter(x=>x.publicada && x.desde<=hoy && x.hasta>=hoy).sort((a,b)=>a.hasta.localeCompare(b.hasta));
+      const prox = s.docs.map(d=>d.data()).filter(x=>x.publicada && x.desde>hoy).length;
+      r.ventas = { vigentes:v, proximas:prox }; }).catch(()=>{ r.ventas=null; }));
+  }
+  if(perfil.dueno || p.personal==='admin'){
+    tareas.push(Promise.all([ db.collection('estadoFuncionario').where('adentro','==',true).get(), db.collection('marcas').where('fecha','==',hoy).get() ]).then(([e,m])=>{
+      const adentro = e.docs.map(d=>d.data()).filter(x=>{ const t = x.ultimaTs && x.ultimaTs.toDate ? x.ultimaTs.toDate() : (x.ultimaTs?new Date(x.ultimaTs):null); return t && t.toDateString()===new Date().toDateString(); });
+      const porSuc = {}; adentro.forEach(x=>{ porSuc[x.sucursalId]=(porSuc[x.sucursalId]||0)+1; });
+      r.personal = { adentro:adentro.length, locales:Object.keys(porSuc).length, marcas: m.docs.filter(d=>!d.data().anulada).length };
+    }).catch(()=>{ r.personal=null; }));
+  }
+  if(perfil.dueno) tareas.push(db.collection('invitaciones').get().then(s=>{ r.invitaciones = s.size; }).catch(()=>{}));
+  await Promise.all(tareas);
+  resumen = r; resumenHora = Date.now(); resumenCargando = false;
+  if(vista==='inicio'){ render(); animarNumeros(); }
+}
+// Único movimiento de la pantalla: los números del día cuentan hasta su valor al cargar.
+function animarNumeros(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('[data-cuenta]').forEach(el=>{
+    const fin = Number(el.dataset.cuenta); if(!fin) return; const t0 = performance.now(), dur = 700;
+    const paso = t=>{ const k = Math.min(1,(t-t0)/dur); el.textContent = Math.round(fin*(1-Math.pow(1-k,3))); if(k<1) requestAnimationFrame(paso); };
+    requestAnimationFrame(paso);
+  });
+}
+setInterval(()=>{ if(vista==='inicio' && perfil) cargarResumen(); }, 60000);
+
+function saludo(){ const h=new Date().getHours(); return h<12?'Buen día':h<20?'Buenas tardes':'Buenas noches'; }
+function numero(n){ return n==null ? '<span class="opacity-60">—</span>' : `<span data-cuenta="${n}">${n}</span>`; }
 function vInicio(){
-  const p = perfil.permisos || {};
-  const tarjetas = MODULOS.filter(m => p[m.id] || perfil.dueno).map(m=>{
-    const nivel = m.niveles[p[m.id]] || (perfil.dueno ? 'Dueño' : '');
-    const listo = !!m.url;
-    const inner = `
-      <div class="flex items-start gap-4">
-        <div class="w-12 h-12 rounded-xl ${listo?'bg-brand-700 text-white':'bg-slate-100 text-slate-400'} flex items-center justify-center shrink-0"><i data-lucide="${m.icon}" class="w-6 h-6"></i></div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-lg text-slate-900">${m.nombre}</span>
-            ${listo ? `<span class="text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-full">${esc(nivel)}</span>` : `<span class="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Próximamente</span>`}
-          </div>
-          <div class="text-sm text-slate-500 mt-1">${m.desc}</div>
-        </div>
-        ${listo ? '<i data-lucide="chevron-right" class="w-5 h-5 text-slate-300 mt-3"></i>' : ''}
-      </div>`;
-    return listo
-      ? `<a href="${m.url}" class="block bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 hover:shadow-md transition">${inner}</a>`
-      : `<div class="bg-white/60 border border-dashed border-slate-300 rounded-2xl p-5">${inner}</div>`;
-  }).join('');
-  const admin = perfil.dueno ? `
-    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mt-10 mb-3">Administración del portal</h2>
-    <div class="grid sm:grid-cols-2 gap-3">
-      <button onclick="irA('usuarios')" class="text-left bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 transition flex items-center gap-4">
-        <div class="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0"><i data-lucide="users" class="w-5 h-5"></i></div>
-        <div><div class="font-bold text-slate-900">Usuarios y permisos</div><div class="text-sm text-slate-500">Invitar personas, darles acceso a cada módulo y dar de baja.</div></div>
-      </button>
-      <button onclick="irA('migracion')" class="text-left bg-white border border-slate-200 shadow-soft rounded-2xl p-5 hover:border-brand-400 transition flex items-center gap-4">
-        <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0"><i data-lucide="database-zap" class="w-5 h-5"></i></div>
-        <div><div class="font-bold text-slate-900">Copiar datos de Envíos</div><div class="text-sm text-slate-500">Traer clientes, repartidores y pedidos del sistema actual.</div></div>
-      </button>
-    </div>` : '';
-  const vacio = !tarjetas ? `<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">Todavía no tenés acceso a ningún módulo. Pedile al administrador que te lo asigne.</div>` : '';
+  const p = perfil.permisos||{};
+  if(!resumen) cargarResumen();
+  const R = resumen || {};
+  const fecha = new Date().toLocaleDateString('es-UY',{ weekday:'long', day:'numeric', month:'long' });
+  const tarjetas = [];
+
+  const nivelEnvios = perfil.dueno ? 'admin' : p.envios;
+  if(nivelEnvios){
+    const e = R.envios, total = e ? e.total : null;
+    const seg = (n,c)=> e && e.total ? `<span class="${c}" style="width:${n/e.total*100}%"></span>` : '';
+    tarjetas.push(`<a href="envios/" class="group block rounded-[28px] bg-menta text-white p-6 sm:p-7 md:col-span-7 hover:bg-menta-oscuro transition-colors">
+      <div class="flex items-center justify-between"><span class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center"><i data-lucide="truck" class="w-6 h-6"></i></span><span class="font-display text-2xl font-bold">Envíos</span></span><i data-lucide="arrow-up-right" class="w-6 h-6 opacity-60 group-hover:opacity-100 transition-opacity"></i></div>
+      <div class="mt-6 flex items-end gap-3"><span class="font-display text-7xl sm:text-8xl font-extrabold leading-[.85] tabular-nums">${numero(total)}</span>
+        <span class="text-lg font-semibold leading-tight pb-1">${nivelEnvios==='repartidor'?'entregas tuyas<br>para hoy':'pedidos<br>para hoy'}</span></div>
+      ${e && e.total ? `<div class="mt-6 flex h-2.5 rounded-full overflow-hidden bg-white/20">${seg(e.entregado,'bg-white')}${seg(e.encamino,'bg-white/60')}${seg(e.noentregado,'bg-rose-300')}</div>
+        <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm font-medium"><span>${e.entregado} entregados</span><span class="opacity-80">${e.encamino} en camino</span><span class="opacity-80">${e.pendiente} por salir</span>${e.noentregado?`<span class="text-rose-100">${e.noentregado} sin entregar</span>`:''}</div>`
+        : `<div class="mt-6 text-sm font-medium opacity-80">${e?'No hay pedidos cargados para hoy.':'Pedidos, rutas, entregas y choferes.'}</div>`}
+    </a>`);
+  }
+
+  const nivelVentas = perfil.dueno ? 'admin' : p.ventas;
+  if(nivelVentas){
+    const v = R.ventas, vig = v ? v.vigentes : [];
+    const prox = vig[0];
+    tarjetas.push(`<a href="ventas/" class="group block rounded-[28px] bg-mandarina text-white p-6 sm:p-7 ${nivelEnvios?'md:col-span-5':'md:col-span-12'} hover:bg-mandarina-oscuro transition-colors">
+      <div class="flex items-center justify-between"><span class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center"><i data-lucide="tag" class="w-6 h-6"></i></span><span class="font-display text-2xl font-bold">Ventas</span></span><i data-lucide="arrow-up-right" class="w-6 h-6 opacity-60 group-hover:opacity-100 transition-opacity"></i></div>
+      <div class="mt-6 flex items-end gap-3"><span class="font-display text-7xl sm:text-8xl font-extrabold leading-[.85] tabular-nums">${numero(v?vig.length:null)}</span>
+        <span class="text-lg font-semibold leading-tight pb-1">${v&&vig.length===1?'oferta<br>vigente':'ofertas<br>vigentes'}</span></div>
+      <div class="mt-6 text-sm font-medium">${prox ? `<span class="inline-block bg-white text-mandarina-oscuro font-bold rounded-lg px-2 py-0.5 mr-1">${esc(prox.mecanica||'Oferta')}</span>${esc(prox.titulo)}, ${diasHasta(prox.hasta)===0?'termina hoy':diasHasta(prox.hasta)===1?'termina mañana':'termina en '+diasHasta(prox.hasta)+' días'}` : (v ? (v.proximas?`${v.proximas} próxima${v.proximas>1?'s':''} para arrancar.`:'Catálogo y precios de las tres listas.') : 'Catálogo, precios y ofertas.')}</div>
+    </a>`);
+  }
+
+  if(perfil.dueno || p.personal==='admin'){
+    const ps = R.personal;
+    tarjetas.push(`<a href="personal/" class="group block rounded-[28px] bg-uva text-white p-6 sm:p-7 md:col-span-7 hover:bg-uva-oscuro transition-colors">
+      <div class="flex items-center justify-between"><span class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center"><i data-lucide="clock" class="w-6 h-6"></i></span><span class="font-display text-2xl font-bold">Personal</span></span><i data-lucide="arrow-up-right" class="w-6 h-6 opacity-60 group-hover:opacity-100 transition-opacity"></i></div>
+      <div class="mt-6 flex items-end gap-3"><span class="font-display text-7xl sm:text-8xl font-extrabold leading-[.85] tabular-nums">${numero(ps?ps.adentro:null)}</span>
+        <span class="text-lg font-semibold leading-tight pb-1">trabajando<br>ahora</span></div>
+      <div class="mt-6 text-sm font-medium opacity-90">${ps ? (ps.adentro ? `En ${ps.locales} local${ps.locales>1?'es':''}. ${ps.marcas} marcas en el día.` : `${ps.marcas} marcas en el día.`) : 'Marcas, horarios y horas trabajadas.'}</div>
+    </a>`);
+  }
+
+  if(perfil.dueno){
+    const inv = R.invitaciones||0;
+    tarjetas.push(`<div class="rounded-[28px] bg-white p-6 sm:p-7 ${tarjetas.length%2===1?'md:col-span-5':'md:col-span-12'} flex flex-col">
+      <span class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl bg-tinta text-white flex items-center justify-center"><i data-lucide="settings-2" class="w-6 h-6"></i></span><span class="font-display text-2xl font-bold">Administración</span></span>
+      <div class="mt-5 grid gap-2">
+        <button onclick="irA('usuarios')" class="flex items-center justify-between gap-3 rounded-2xl bg-niebla hover:bg-slate-200/70 px-4 py-3.5 text-left">
+          <span class="flex items-center gap-3"><i data-lucide="users" class="w-5 h-5 text-tinta/60"></i><span class="font-semibold">Usuarios y permisos</span></span>
+          ${inv?`<span class="text-xs font-bold bg-tinta text-white rounded-full px-2.5 py-1 whitespace-nowrap">${inv} sin usar</span>`:'<i data-lucide="chevron-right" class="w-4 h-4 text-tinta/40"></i>'}</button>
+        <button onclick="irA('migracion')" class="flex items-center justify-between gap-3 rounded-2xl bg-niebla hover:bg-slate-200/70 px-4 py-3.5 text-left">
+          <span class="flex items-center gap-3"><i data-lucide="database-zap" class="w-5 h-5 text-tinta/60"></i><span class="font-semibold">Copiar datos de Envíos</span></span><i data-lucide="chevron-right" class="w-4 h-4 text-tinta/40"></i></button>
+      </div></div>`);
+  }
+
+  const vacio = !tarjetas.length ? `<div class="md:col-span-12 rounded-[28px] bg-white p-8 text-tinta/70">Todavía no tenés acceso a ningún módulo. Pedile al administrador que te lo asigne.</div>` : '';
   return `
-    <div class="mb-6">
-      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Hola, ${esc((perfil.nombre||'').split(' ')[0])}</h1>
-      <p class="text-slate-500 mt-1">Elegí con qué querés trabajar.</p>
-    </div>
-    <div class="grid md:grid-cols-2 gap-4">${tarjetas}</div>${vacio}${admin}`;
+    <section class="pt-4 pb-8 sm:pt-8 sm:pb-10">
+      <h1 class="font-display font-extrabold tracking-tight text-[44px] sm:text-[64px] leading-[.95]">${saludo()},<br class="sm:hidden"> ${esc((perfil.nombre||'').split(' ')[0])}</h1>
+      <p class="mt-3 text-lg text-tinta/60 first-letter:uppercase">${fecha}</p>
+    </section>
+    <div class="grid md:grid-cols-12 gap-4">${tarjetas.join('')}${vacio}</div>`;
 }
 
 /* ===================== USUARIOS Y PERMISOS (dueño) ===================== */
