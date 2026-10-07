@@ -76,6 +76,8 @@ const MODULOS = [
     niveles:{ admin:'Administrador', repartidor:'Repartidor' } },
   { id:'ventas', nombre:'Ventas', desc:'Catálogo, precios por tipo de cliente y promociones.', url:'ventas/', icon:'tag',
     niveles:{ admin:'Administrador', vendedor:'Vendedor' } },
+  { id:'personal', nombre:'Personal', desc:'Marcas de entrada y salida, horarios, horas trabajadas y relojes de los locales.', url:'personal/', icon:'clock',
+    niveles:{ admin:'Administrador' } },
 ];
 
 /* ===================== ESTADO ===================== */
@@ -181,7 +183,7 @@ async function activarCuenta(){
     if(email === OWNER_EMAIL){
       await db.collection('usuarios').doc(usuario.uid).set({
         nombre: 'Marcos', email, dueno:true, activo:true,
-        permisos:{ envios:'admin', ventas:'admin' },
+        permisos:{ envios:'admin', ventas:'admin', personal:'admin' },
         creado: firebase.firestore.FieldValue.serverTimestamp(),
         actualizado: firebase.firestore.FieldValue.serverTimestamp(),
       });
