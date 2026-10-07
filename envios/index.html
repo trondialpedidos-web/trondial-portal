@@ -27,7 +27,7 @@
       extend: {
         fontFamily: { sans: ['Onest','system-ui','sans-serif'], display: ['"Bricolage Grotesque"','Onest','system-ui','sans-serif'] },
         colors: {
-          tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, brand: { 50:'#E8FAF3',100:'#CCF3E4',200:'#9BE6CB',300:'#5FD2AD',400:'#2FBA90',500:'#0F9F7A',600:'#0B8A6A',700:'#0B7A5E',800:'#0C614C',900:'#0B4F3F' }
+          tinta:'#121A2F', niebla:'#EEF2F7', menta:{ DEFAULT:'#0F9F7A', oscuro:'#0B7A5E' }, mandarina:{ DEFAULT:'#EE6A24', oscuro:'#C9541A' }, uva:{ DEFAULT:'#6544E0', oscuro:'#5034BD' }, arandano:{ DEFAULT:'#2F6FE4', oscuro:'#1F4BAA' }, brand: { 50:'#E8FAF3',100:'#CCF3E4',200:'#9BE6CB',300:'#5FD2AD',400:'#2FBA90',500:'#0F9F7A',600:'#0B8A6A',700:'#0B7A5E',800:'#0C614C',900:'#0B4F3F' }
         },
         boxShadow: { soft: '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06)' }
       }
@@ -61,7 +61,7 @@
 <header class="sticky top-0 z-40 bg-niebla/85 backdrop-blur">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
     <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
+      <a href="../" class="flex items-center gap-2 shrink-0" title="Ir al portal"><span class="font-display font-extrabold text-[22px] leading-none tracking-tight text-tinta">trondial</span><span class="hidden sm:flex gap-1" aria-hidden="true"><i class="w-2 h-2 rounded-full bg-menta"></i><i class="w-2 h-2 rounded-full bg-mandarina"></i><i class="w-2 h-2 rounded-full bg-arandano"></i><i class="w-2 h-2 rounded-full bg-uva"></i></span></a>
       <span class="text-tinta/25 text-xl font-light" aria-hidden="true">/</span>
       <div class="relative">
         <button type="button" onclick="menuModulos(event)" class="flex items-center gap-2 rounded-xl pl-1 pr-2 py-1 hover:bg-white" aria-haspopup="true" aria-label="Cambiar de módulo">
@@ -69,13 +69,17 @@
           <span class="font-display font-bold text-lg text-tinta">Envíos</span><i data-lucide="chevron-down" class="w-4 h-4 text-tinta/40"></i></button>
         <div id="menuMod" class="hidden absolute left-0 mt-2 w-60 bg-white rounded-2xl shadow-[0_24px_48px_-16px_rgba(18,26,47,.3)] p-2 z-50">
           <a href="../" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla"><span class="w-9 h-9 rounded-xl bg-tinta text-white flex items-center justify-center"><i data-lucide="layout-grid" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Inicio del portal</span></a>
-          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
+          <a href="../envios/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla bg-niebla"><span class="w-9 h-9 rounded-xl bg-menta text-white flex items-center justify-center"><i data-lucide="truck" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Envíos</span></a><a href="../ventas/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-mandarina text-white flex items-center justify-center"><i data-lucide="tag" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Ventas</span></a><a href="../produccion/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-arandano text-white flex items-center justify-center"><i data-lucide="factory" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Producción</span></a><a href="../personal/" class="flex items-center gap-3 rounded-xl px-2.5 py-2 hover:bg-niebla "><span class="w-9 h-9 rounded-xl bg-uva text-white flex items-center justify-center"><i data-lucide="clock" class="w-[18px] h-[18px]"></i></span><span class="font-semibold">Personal</span></a>
         </div>
       </div>
     </div>
     <div id="sessionBar" class="flex items-center gap-3"></div>
   </div>
 </header>
+<script>
+function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
+document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
+</script>
 <script>
 function menuModulos(e){ e.stopPropagation(); document.getElementById('menuMod').classList.toggle('hidden'); }
 document.addEventListener('click', ()=>{ const m=document.getElementById('menuMod'); if(m) m.classList.add('hidden'); });
