@@ -71,8 +71,8 @@ const MODULOS = [
     niveles:{ admin:'Administrador', repartidor:'Repartidor' } },
   { id:'ventas', nombre:'Ventas', desc:'Catálogo, precios por tipo de cliente y promociones.', url:'ventas/', icon:'tag',
     niveles:{ admin:'Administrador', vendedor:'Vendedor' } },
-  { id:'produccion', nombre:'Producción', desc:'Órdenes de la oficina a la fábrica, despachos y recepción.', url:'produccion/', icon:'factory',
-    niveles:{ admin:'Administrador', oficina:'Oficina de ventas', fabrica:'Fábrica' } },
+  { id:'produccion', nombre:'Producción', desc:'Pedidos a fábrica, remitos, recepción en depósito e ingreso a Opus.', url:'produccion/', icon:'factory',
+    niveles:{ admin:'Administrador', oficina:'Oficina de ventas', fabrica:'Fábrica', deposito:'Depósito' } },
   { id:'personal', nombre:'Personal', desc:'Marcas de entrada y salida, horarios, horas trabajadas y relojes de los locales.', url:'personal/', icon:'clock',
     niveles:{ admin:'Administrador' } },
 ];
@@ -404,10 +404,11 @@ async function cargarResumen(){
   }
   const nivelProd = perfil.dueno ? 'admin' : p.produccion;
   if(nivelProd){
-    tareas.push(Promise.all([ db.collection('ordenes').where('estado','in',['nueva','cambio','aceptada','produccion','lista','despachada']).get(), db.collection('despachos').where('estado','==','en-camino').get() ]).then(([o,d])=>{
+    tareas.push(Promise.all([ db.collection('ordenes').where('estado','in',['nueva','cambio','aceptada','produccion','lista','despachada']).get(), db.collection('despachos').where('estado','==','en-camino').get(), db.collection('despachos').where('ingresadoOpus','==',false).get() ]).then(([o,d,op])=>{
       const os = o.docs.map(x=>x.data());
+      const paraOpus = op.docs.map(x=>x.data()).filter(x=>['recibido','diferencias','revisado'].includes(x.estado)).length;
       r.produccion = { abiertas: os.filter(x=>x.estado!=='despachada').length, nuevas: os.filter(x=>x.estado==='nueva').length,
-        atrasadas: os.filter(x=>x.fechaRequerida && x.fechaRequerida < hoy && x.estado!=='despachada').length, enCamino: d.size };
+        atrasadas: os.filter(x=>x.fechaRequerida && x.fechaRequerida < hoy && x.estado!=='despachada').length, enCamino: d.size, paraOpus };
     }).catch(()=>{ r.produccion=null; }));
   }
   if(perfil.dueno || p.personal==='admin'){
@@ -470,13 +471,13 @@ function vInicio(){
 
   const nivelProd = perfil.dueno ? 'admin' : p.produccion;
   if(nivelProd){
-    const pr = R.produccion, fab = nivelProd==='fabrica';
-    const n = pr ? (fab ? pr.nuevas : pr.abiertas) : null;
+    const pr = R.produccion, fab = nivelProd==='fabrica', dep = nivelProd==='deposito';
+    const n = pr ? (fab ? pr.nuevas : dep ? pr.enCamino : pr.abiertas) : null;
     tarjetas.push(`<a href="produccion/" class="group block rounded-[28px] bg-arandano text-white p-6 sm:p-7 hover:bg-arandano-oscuro transition-colors" data-ancho>
       <div class="flex items-center justify-between"><span class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center"><i data-lucide="factory" class="w-6 h-6"></i></span><span class="font-display text-2xl font-bold">Producción</span></span><i data-lucide="arrow-up-right" class="w-6 h-6 opacity-60 group-hover:opacity-100 transition-opacity"></i></div>
       <div class="mt-6 flex items-end gap-3"><span class="font-display text-7xl sm:text-8xl font-extrabold leading-[.85] tabular-nums">${numero(n)}</span>
-        <span class="text-lg font-semibold leading-tight pb-1">${fab?'órdenes<br>nuevas':'órdenes<br>abiertas'}</span></div>
-      <div class="mt-6 text-sm font-medium opacity-90">${pr ? [pr.enCamino?`${pr.enCamino} despacho${pr.enCamino>1?'s':''} en camino`:'', pr.atrasadas?`<span class="bg-white text-arandano-oscuro font-bold rounded-lg px-2 py-0.5">${pr.atrasadas} atrasada${pr.atrasadas>1?'s':''}</span>`:''].filter(Boolean).join('. ') || 'Todo al día.' : 'Órdenes a la fábrica, despachos y recepción.'}</div>
+        <span class="text-lg font-semibold leading-tight pb-1">${fab?'pedidos<br>nuevos':dep?'remitos<br>por recibir':'pedidos<br>abiertos'}</span></div>
+      <div class="mt-6 text-sm font-medium opacity-90">${pr ? [!dep&&pr.enCamino?`${pr.enCamino} remito${pr.enCamino>1?'s':''} en camino`:'', !fab&&!dep&&pr.paraOpus?`<span class="bg-amber-300 text-tinta font-bold rounded-lg px-2 py-0.5">${pr.paraOpus} para ingresar a Opus</span>`:'', pr.atrasadas?`<span class="bg-white text-arandano-oscuro font-bold rounded-lg px-2 py-0.5">${pr.atrasadas} atrasada${pr.atrasadas>1?'s':''}</span>`:''].filter(Boolean).join('. ') || 'Todo al día.' : 'Pedidos a fábrica, remitos e ingreso a Opus.'}</div>
     </a>`);
   }
 
