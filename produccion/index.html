@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -119,6 +120,8 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); })
 function datosDoc(d){ return Object.assign({ id:d.id }, d.data({ serverTimestamps:'estimate' })); }
 const esOficina = () => rol==='oficina' || rol==='admin';
 const esFabrica = () => rol==='fabrica' || rol==='admin';
+const esDeposito = () => rol==='deposito' || rol==='admin';
+const recibe = () => esDeposito() || esOficina();     // el depósito recibe; la oficina también puede hacerlo
 const yo = () => (perfil && perfil.nombre) || '';
 
 /* ===================== INGRESO ===================== */
@@ -127,7 +130,7 @@ firebase.auth().onAuthStateChanged(user=>{
   db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
     perfil = doc.exists ? doc.data() : null;
     const r = (perfil && perfil.activo) ? (perfil.dueno ? 'admin' : ((perfil.permisos||{}).produccion||'')) : '';
-    if(!['admin','oficina','fabrica'].includes(r)){ detener(); rol=''; sinAcceso=true; render(); return; }
+    if(!['admin','oficina','fabrica','deposito'].includes(r)){ detener(); rol=''; sinAcceso=true; render(); return; }
     if(r!==rol){ rol=r; sinAcceso=false; detener(); escuchar(); }
     render();
   }, ()=>{ detener(); sinAcceso=true; render(); });
@@ -153,8 +156,9 @@ function render(){
   const r=$('root');
   if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
   if(!rol){ r.innerHTML='<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
-  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos };
-  if(tab==='productos' && !esOficina()) tab='ordenes';
+  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos, opus:vOpus };
+  const permitidas = rol==='deposito' ? ['recepcion','despachos'] : rol==='fabrica' ? ['ordenes','despachos'] : ['ordenes','despachos','recepcion','opus','productos'];
+  if(!permitidas.includes(tab)) tab = permitidas[0];
   r.innerHTML = vTabs() + (vistas[tab]||vOrdenes)();
   iconos();
 }
@@ -162,7 +166,7 @@ function renderBarra(){
   const el=$('sessionBar'); if(!el) return;
   const portal=`<a href="../" class="text-xs font-semibold text-slate-500 hover:text-brand-700 flex items-center gap-1"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Portal</a>`;
   if(!perfil){ el.innerHTML=portal; return; }
-  const nombreRol = { admin:'Administrador', oficina:'Oficina', fabrica:'Fábrica' }[rol]||'';
+  const nombreRol = { admin:'Administrador', oficina:'Oficina', fabrica:'Fábrica', deposito:'Depósito' }[rol]||'';
   el.innerHTML = `<span class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-white px-3 py-1.5 rounded-full">${esc(perfil.nombre)}${nombreRol?` <span class="text-brand-700">· ${nombreRol}</span>`:''}</span>${portal}
     <button onclick="salir()" class="text-xs font-semibold text-slate-500 hover:text-rose-600 flex items-center gap-1"><i data-lucide="log-out" class="w-3.5 h-3.5"></i><span class="hidden sm:inline">Cerrar sesión</span></button>`;
 }
@@ -174,8 +178,15 @@ function vSinAcceso(){
 }
 function vTabs(){
   const enCamino = despachos.filter(d=>d.estado==='en-camino').length;
-  const t=(id,txt,icon,badge)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-brand-700':'bg-sky-500 text-white'}">${badge}</span>`:''}</button>`;
-  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${t('ordenes','Órdenes','clipboard-list')}${t('despachos','Despachos','truck')}${esOficina()?t('recepcion','Recepción','package-check',enCamino):''}${esOficina()?t('productos','Productos de fábrica','boxes'):''}</nav>`;
+  const paraOpus = despachos.filter(d=>['recibido','diferencias','revisado'].includes(d.estado) && !d.ingresadoOpus).length;
+  const t=(id,txt,icon,badge,color)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-brand-700':(color||'bg-sky-500 text-white')}">${badge}</span>`:''}</button>`;
+  const tabs = [];
+  if(rol!=='deposito') tabs.push(t('ordenes','Pedidos a fábrica','clipboard-list'));
+  if(recibe()) tabs.push(t('recepcion','Recepción en depósito','package-check',enCamino));
+  tabs.push(t('despachos','Remitos','file-text'));
+  if(esOficina()) tabs.push(t('opus','Ingreso a Opus','database',paraOpus,'bg-amber-400 text-amber-950'));
+  if(esOficina()) tabs.push(t('productos','Productos de fábrica','boxes'));
+  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${tabs.join('')}</nav>`;
 }
 
 /* ===================== LÓGICA DE CANTIDADES ===================== */
@@ -185,6 +196,10 @@ function totales(o){
   return { pedido:s('cantidad'), producido:s('producido'), despachado:s('despachado'), recibido:s('recibido') };
 }
 function pct(a,b){ return b ? Math.min(100, Math.round(a/b*100)) : 0; }
+// Avance promedio por producto (no mezcla unidades distintas como bultos y kg)
+function avance(o, campo){ const it=(o.items||[]).filter(x=>Number(x.cantidad)>0); if(!it.length) return 0;
+  return Math.round(it.reduce((s,x)=>s+Math.min(1, Number(x[campo]||0)/Number(x.cantidad)),0)/it.length*100); }
+function mismaUnidad(o){ return new Set((o.items||[]).map(x=>x.unidad)).size === 1; }
 function textoFecha(o){
   if(!o.fechaRequerida) return '';
   const d = diasHasta(o.fechaRequerida), cerrada = ['recibida','cancelada'].includes(o.estado);
@@ -202,7 +217,8 @@ function vOrdenes(){
   const columnas = ETAPAS.filter(e=>!['recibida','cancelada'].includes(e.id)).filter(e=> e.id!=='cambio' || abiertas.some(o=>o.estado==='cambio'));
   const tarjeta = o => {
     const t = totales(o), e = etapa(o.estado);
-    const barra = o.estado==='produccion' || t.producido ? `<div class="mt-3"><div class="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full bg-brand-500" style="width:${pct(t.producido,t.pedido)}%"></div></div><div class="text-[11px] text-slate-500 mt-1">${pct(t.producido,t.pedido)}% producido</div></div>` : '';
+    const av = avance(o,'producido');
+    const barra = o.estado==='produccion' || t.producido ? `<div class="mt-3"><div class="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full bg-brand-500" style="width:${av}%"></div></div><div class="text-[11px] text-slate-500 mt-1">${av}% producido</div></div>` : '';
     return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left bg-white rounded-2xl p-4 hover:ring-2 hover:ring-brand-300 transition">
       <div class="flex items-start justify-between gap-2"><span class="font-display font-extrabold text-lg">N° ${o.numero||'—'}</span>
         ${o.prioridad==='urgente'?'<span class="text-[11px] font-bold bg-rose-500 text-white px-2 py-0.5 rounded-full">Urgente</span>':''}</div>
@@ -218,9 +234,10 @@ function vOrdenes(){
       <div class="space-y-2.5">${lista.map(tarjeta).join('') || '<div class="text-xs text-slate-400 px-1 py-4">—</div>'}</div></section>`; };
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Órdenes de producción</h1>
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Pedidos a fábrica</h1>
         <p class="text-slate-500 mt-1">${abiertas.length} abierta${abiertas.length===1?'':'s'}${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length?` · <span class="text-rose-600 font-semibold">${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length} atrasada(s)</span>`:''}</p></div>
-      ${esOficina()?`<button onclick="abrirNuevaOrden()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nueva orden</button>`:''}
+      <div class="flex flex-wrap gap-2"><button onclick="abrirExportarPedidos()" class="border border-slate-300 bg-white hover:border-brand-400 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar a Excel</button>
+      ${esOficina()?`<button onclick="abrirNuevaOrden()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nuevo pedido</button>`:''}</div>
     </div>
     ${abiertas.length ? `<div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">${columnas.map(col).join('')}</div>`
       : `<div class="bg-white rounded-[28px] p-10 text-center text-slate-500">${esOficina()?'No hay órdenes abiertas. Creá la primera con "Nueva orden".':'No hay órdenes para producir.'}${!productosF.length&&esOficina()?'<div class="mt-2 text-sm">Antes, cargá los productos que hace la fábrica en "Productos de fábrica".</div>':''}</div>`}
@@ -321,18 +338,23 @@ function abrirOrden(id){
     if(['nueva','cambio'].includes(o.estado)) acciones.push(`<button onclick="cerrarModal(); abrirNuevaOrden('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl">Editar</button>`);
     if(!['despachada','recibida','cancelada'].includes(o.estado) && !t.despachado) acciones.push(`<button onclick="cancelarOrden('${id}')" class="text-rose-600 font-semibold px-3 py-2.5">Cancelar orden</button>`);
   }
+  acciones.push(`<button onclick="exportarPedidos(['${id}'])" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel</button>`);
+  acciones.push(`<button onclick="imprimirPedido('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>`);
   const filas = (o.items||[]).map(x=>{ const falta = o.estado==='recibida' && Number(x.recibido||0) < Number(x.cantidad||0);
     return `<tr class="border-t border-slate-100"><td class="py-2 pr-2"><div class="font-medium">${esc(x.nombre)}</div>${x.codigo?`<div class="text-[11px] text-slate-400">Cód. ${esc(x.codigo)}</div>`:''}</td>
     <td class="py-2 px-2 text-right num font-semibold">${cant(x.cantidad)} <span class="text-xs text-slate-400 font-normal">${esc(x.unidad)}</span></td>
     <td class="py-2 px-2 text-right num">${cant(x.producido)}</td><td class="py-2 px-2 text-right num">${cant(x.despachado)}</td>
     <td class="py-2 pl-2 text-right num ${falta?'text-rose-600 font-bold':''}">${cant(x.recibido)}</td></tr>`; }).join('');
   const hist = (o.historial||[]).slice().reverse().map(h=>`<li class="flex gap-3"><span class="w-2 h-2 rounded-full mt-1.5 shrink-0 ${etapa(h.estado).color}"></span><div><span class="font-semibold">${esc(etapa(h.estado).corto||h.estado)}</span>${h.estado==='editada'?'Editada':''} <span class="text-slate-400">· ${esc(h.por||'')} · ${cuando(h.cuando)}</span>${h.nota?`<div class="text-slate-600">${esc(h.nota)}</div>`:''}</div></li>`).join('');
-  modal(`Orden N° ${o.numero}`, `
+  modal(`Pedido N° ${o.numero}`, `
     <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs font-bold px-2.5 py-1 rounded-full ${e.chip}">${e.corto}</span>${o.prioridad==='urgente'?'<span class="text-xs font-bold bg-rose-500 text-white px-2.5 py-1 rounded-full">Urgente</span>':''}
       <span class="text-sm text-slate-500">${textoFecha(o)}${o.fechaEstimada?` · fábrica estima el ${fechaCorta(o.fechaEstimada)}`:''}</span></div>
     ${o.notas?`<div class="text-sm bg-niebla rounded-xl p-3 mb-4">${esc(o.notas)}</div>`:''}
     ${o.estado==='cambio'?`<div class="text-sm bg-amber-50 text-amber-900 rounded-xl p-3 mb-4"><b>La fábrica pide un cambio:</b> ${esc(o.pedidoCambio||'')}</div>`:''}
-    <div class="grid grid-cols-4 gap-2 mb-4 text-center">${[['Pedido',t.pedido],['Producido',t.producido],['Despachado',t.despachado],['Recibido',t.recibido]].map(([n,v],i)=>`<div class="rounded-xl p-2 ${i===0?'bg-niebla':'bg-brand-50'}"><div class="font-display font-extrabold text-xl num">${cant(v)}</div><div class="text-[11px] text-slate-500">${n}</div></div>`).join('')}</div>
+    <div class="grid grid-cols-4 gap-2 mb-4 text-center">${(mismaUnidad(o)
+      ? [['Pedido',cant(t.pedido)+' '+(o.items[0]||{}).unidad],['Producido',cant(t.producido)],['Despachado',cant(t.despachado)],['Recibido',cant(t.recibido)]]
+      : [['Productos',(o.items||[]).length],['Producido',avance(o,'producido')+'%'],['Despachado',avance(o,'despachado')+'%'],['Recibido',avance(o,'recibido')+'%']]
+    ).map(([n,v],i)=>`<div class="rounded-xl p-2 ${i===0?'bg-niebla':'bg-brand-50'}"><div class="font-display font-extrabold text-xl num">${v}</div><div class="text-[11px] text-slate-500">${n}</div></div>`).join('')}</div>
     <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-slate-400 uppercase"><th class="pb-1">Producto</th><th class="pb-1 px-2 text-right">Pedido</th><th class="pb-1 px-2 text-right">Producido</th><th class="pb-1 px-2 text-right">Despachado</th><th class="pb-1 pl-2 text-right">Recibido</th></tr></thead><tbody>${filas}</tbody></table></div>
     ${acciones.length?`<div class="flex flex-wrap gap-2 mt-5">${acciones.join('')}</div>`:''}
     <div class="mt-6"><div class="font-semibold text-sm mb-2">Historial</div><ul class="space-y-2 text-sm">${hist}</ul></div>`, 'sm:max-w-2xl');
@@ -394,7 +416,7 @@ function abrirDespacho(ordenId){
   const filas = disponibles().filter(r=>!ordenId || r.o.id===ordenId).concat(ordenId ? disponibles().filter(r=>r.o.id!==ordenId) : []);
   if(!filas.length){ modal('Nada para despachar', '<p class="text-sm text-slate-600">No hay producción terminada esperando despacho. Primero cargá lo producido en cada orden.</p>'); return; }
   edDesp = filas;
-  modal('Nuevo despacho', `<form onsubmit="guardarDespacho(event)" class="space-y-4">
+  modal('Nuevo remito de salida', `<form onsubmit="guardarDespacho(event)" class="space-y-4">
     <div><label class="lbl" for="dCamion">Camión o chofer</label><input class="field" id="dCamion" placeholder="Ej.: Camión 2 · Juan"></div>
     <p class="text-sm text-slate-600">Cargá lo que <b>efectivamente se subió al camión</b>. Lo que no se cargue queda pendiente en expedición.</p>
     <div class="space-y-2">${filas.map((r,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3">
@@ -402,7 +424,7 @@ function abrirDespacho(ordenId){
       <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(r.x.nombre)}</div><div class="text-xs text-slate-500">Orden N° ${r.o.numero} · disponible ${cant(r.disp)} ${esc(r.x.unidad)}</div></div>
       <input id="dc${k}" class="field num !w-24 text-right" inputmode="decimal" value="${r.disp}"><span class="text-xs text-slate-500 w-14">${esc(r.x.unidad)}</span></div>`).join('')}</div>
     <div id="dErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
-    <button id="dBtn" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 rounded-xl">Confirmar despacho</button></form>`, 'sm:max-w-2xl');
+    <button id="dBtn" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 rounded-xl">Confirmar salida y generar remito</button></form>`, 'sm:max-w-2xl');
 }
 async function guardarDespacho(e){
   e.preventDefault();
@@ -424,29 +446,33 @@ async function guardarDespacho(e){
       const docs = {}; for(const oid of Object.keys(porOrden)){ docs[oid] = await tx.get(db.collection('ordenes').doc(oid)); }
       const n = (c.exists ? c.data().ultimo : 0) + 1;
       tx.set(cRef, { ultimo:n });
-      tx.set(ref, { numero:n, camion:$('dCamion').value.trim(), items, estado:'en-camino', creadoPor:yo(), creado:FV.serverTimestamp(), dia:hoyKey() });
+      tx.set(ref, { numero:n, camion:$('dCamion').value.trim(), items, estado:'en-camino', ingresadoOpus:false, creadoPor:yo(), creado:FV.serverTimestamp(), dia:hoyKey() });
       for(const oid of Object.keys(porOrden)){
         const od = docs[oid].data(); const its = od.items;
         porOrden[oid].forEach(it=>{ its[it.idx].despachado = Number(its[it.idx].despachado||0) + it.cantidad; });
         const todo = its.every(x=>Number(x.despachado||0) >= Number(x.cantidad||0));
         tx.update(db.collection('ordenes').doc(oid), { items:its, estado: todo ? 'despachada' : od.estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
-          historial: FV.arrayUnion({ estado: todo?'despachada':od.estado, por:yo(), cuando:new Date().toISOString(), nota:`Despacho N° ${n}: `+porOrden[oid].map(x=>`${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
+          historial: FV.arrayUnion({ estado: todo?'despachada':od.estado, por:yo(), cuando:new Date().toISOString(), nota:`Remito N° ${numRemito(n)}: `+porOrden[oid].map(x=>`${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
       }
       return n;
     });
-    cerrarModal(); toast(`Despacho N° ${numero} registrado. La oficina ya lo ve en camino.`); irTab('despachos');
+    cerrarModal(); irTab('despachos');
+    modal(`Remito N° ${numRemito(numero)} registrado`, `<p class="text-sm text-slate-600">El depósito ya lo ve en camino. Imprimí el remito para que viaje con la mercadería: el depósito lo va a cotejar y firmar al recibir.</p>
+      <button onclick="imprimirRemito('${ref.id}')" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir remito</button>`);
   }catch(e2){ console.error(e2); $('dErr').textContent=motivoError(e2); btn.disabled=false; btn.textContent='Confirmar despacho'; }
 }
 function tarjetaDespacho(d, accion){
   const est = { 'en-camino':['En camino','bg-sky-100 text-sky-800'], 'recibido':['Recibido completo','bg-emerald-100 text-emerald-800'], 'diferencias':['Llegó con diferencias','bg-rose-100 text-rose-700'], 'revisado':['Diferencia revisada','bg-slate-100 text-slate-600'] }[d.estado] || ['',''];
   return `<div class="bg-white rounded-2xl p-4 ${d.estado==='diferencias'?'ring-2 ring-rose-200':''}">
-    <div class="flex items-start justify-between gap-2"><div><div class="font-display font-extrabold text-lg">Despacho N° ${d.numero}</div><div class="text-xs text-slate-500">${esc(d.camion||'Sin camión indicado')} · salió ${cuando(d.creado)}</div></div>
+    <div class="flex items-start justify-between gap-2"><div><div class="font-display font-extrabold text-lg">Remito N° ${numRemito(d.numero)}</div><div class="text-xs text-slate-500">${esc(d.camion||'Sin camión indicado')} · salió ${cuando(d.creado)}</div></div>
       <span class="text-xs font-bold px-2.5 py-1 rounded-full ${est[1]}">${est[0]}</span></div>
     <div class="mt-3 divide-y divide-slate-100 text-sm">${d.items.map(it=>{ const dif = it.recibido!=null && Number(it.recibido) !== Number(it.cantidad);
       return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0 truncate">${esc(it.nombre)} <span class="text-xs text-slate-400">· orden ${it.ordenNumero}</span></span>
         <span class="num whitespace-nowrap">${cant(it.cantidad)} ${esc(it.unidad)}${it.recibido!=null?` → <b class="${dif?'text-rose-600':'text-emerald-700'}">${cant(it.recibido)}</b>`:''}</span></div>`; }).join('')}</div>
     ${d.notaRecepcion?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2">${esc(d.notaRecepcion)}</div>`:''}
     ${d.resolucion?`<div class="text-xs text-slate-700 bg-emerald-50 rounded-lg p-2 mt-2"><b>Revisado:</b> ${esc(d.resolucion)} <span class="text-slate-400">· ${esc(d.revisadoPor||'')}</span></div>`:''}
+    ${d.ingresadoOpus?`<div class="text-xs text-emerald-800 bg-emerald-50 rounded-lg p-2 mt-2 font-semibold">Ingresado en Opus${d.comprobanteOpus?` · comprobante ${esc(d.comprobanteOpus)}`:''} · ${esc(d.ingresadoPor||'')}</div>`:''}
+    <button onclick="imprimirRemito('${d.id}')" class="mt-3 text-sm font-semibold text-brand-700 inline-flex items-center gap-1.5 hover:underline"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir remito</button>
     ${d.recibidoPor?`<div class="text-xs text-slate-400 mt-2">Recibió ${esc(d.recibidoPor)} · ${cuando(d.recibidoEn)}</div>`:''}
     ${accion||''}</div>`;
 }
@@ -454,26 +480,26 @@ function vDespachos(){
   const pend = disponibles();
   const lista = despachos.slice().sort((a,b)=>(b.numero||0)-(a.numero||0));
   return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Despachos</h1>
-        <p class="text-slate-500 mt-1">${pend.length?`Hay producción esperando en expedición: ${pend.map(r=>`${cant(r.disp)} ${esc(r.x.unidad)} ${esc(r.x.nombre)}`).slice(0,3).join(', ')}${pend.length>3?'…':''}`:'No hay producción esperando en expedición.'}</p></div>
-      ${esFabrica()?`<button onclick="abrirDespacho()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${pend.length?'':'disabled'}><i data-lucide="truck" class="w-4 h-4"></i>Nuevo despacho</button>`:''}
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Remitos</h1>
+        <p class="text-slate-500 mt-1">${esFabrica() ? (pend.length?`Esperando en expedición: ${pend.map(r=>`${cant(r.disp)} ${esc(r.x.unidad)} ${esc(r.x.nombre)}`).slice(0,3).join(', ')}${pend.length>3?'…':''}`:'No hay producción esperando en expedición.') : 'Cada salida de fábrica, con su número de remito.'}</p></div>
+      ${esFabrica()?`<button onclick="abrirDespacho()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${pend.length?'':'disabled'}><i data-lucide="truck" class="w-4 h-4"></i>Nueva salida</button>`:''}
     </div>
-    <div class="grid md:grid-cols-2 gap-4">${lista.map(d=>tarjetaDespacho(d)).join('') || '<div class="text-sm text-slate-400">Todavía no hay despachos.</div>'}</div>`;
+    <div class="grid md:grid-cols-2 gap-4">${lista.map(d=>tarjetaDespacho(d)).join('') || '<div class="text-sm text-slate-400">Todavía no hay remitos.</div>'}</div>`;
 }
 
 /* ---------- RECEPCIÓN en la distribuidora (oficina) ---------- */
 function vRecepcion(){
   const enCamino = despachos.filter(d=>d.estado==='en-camino').sort((a,b)=>(a.numero||0)-(b.numero||0));
   const conDif = despachos.filter(d=>d.estado==='diferencias').sort((a,b)=>(b.numero||0)-(a.numero||0));
-  return `<h1 class="font-display text-4xl font-extrabold tracking-tight">Recepción</h1>
-    <p class="text-slate-500 mt-1 mb-6 max-w-2xl">Cuando llega el camión, contá lo que bajó y confirmalo acá. Si algo no llegó, queda marcado como diferencia para revisar con la fábrica.</p>
+  return `<h1 class="font-display text-4xl font-extrabold tracking-tight">Recepción en depósito</h1>
+    <p class="text-slate-500 mt-1 mb-6 max-w-2xl">Cuando llega la mercadería de fábrica, cotejala con el remito: contá lo que bajó y confirmalo acá. Si algo no coincide, queda marcado como diferencia y la oficina lo ve.</p>
     <h2 class="font-semibold mb-3">En camino (${enCamino.length})</h2>
     <div class="grid md:grid-cols-2 gap-4 mb-8">${enCamino.map(d=>tarjetaDespacho(d, `<button onclick="abrirRecepcion('${d.id}')" class="mt-4 w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Recibir</button>`)).join('') || '<div class="text-sm text-slate-400">No hay despachos en camino.</div>'}</div>
-    ${conDif.length?`<h2 class="font-semibold mb-3 text-rose-600">Llegaron con diferencias (${conDif.length})</h2><div class="grid md:grid-cols-2 gap-4">${conDif.map(d=>tarjetaDespacho(d, `<button onclick="revisarDiferencia('${d.id}')" class="mt-4 w-full border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Marcar como revisada</button>`)).join('')}</div>`:''}`;
+    ${conDif.length?`<h2 class="font-semibold mb-3 text-rose-600">Llegaron con diferencias (${conDif.length})</h2><div class="grid md:grid-cols-2 gap-4">${conDif.map(d=>tarjetaDespacho(d, esOficina()?`<button onclick="revisarDiferencia('${d.id}')" class="mt-4 w-full border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Marcar como revisada</button>`:'')).join('')}</div>`:''}`;
 }
 function revisarDiferencia(id){
   const d = despachos.find(x=>x.id===id);
-  modal(`Diferencia del despacho N° ${d.numero}`, `<form onsubmit="event.preventDefault(); guardarRevision('${id}')" class="space-y-4">
+  modal(`Diferencia del remito N° ${numRemito(d.numero)}`, `<form onsubmit="event.preventDefault(); guardarRevision('${id}')" class="space-y-4">
     <p class="text-sm text-slate-600">Anotá qué pasó, por ejemplo: "quedaron en expedición, vienen en el próximo camión" o "se rompieron en el viaje".</p>
     <textarea class="field" id="rvNota" rows="3"></textarea><div id="rvErr" class="text-sm text-rose-600"></div>
     <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Marcar como revisada</button></form>`);
@@ -485,8 +511,8 @@ async function guardarRevision(id){
 }
 function abrirRecepcion(id){
   const d = despachos.find(x=>x.id===id);
-  modal(`Recibir despacho N° ${d.numero}`, `<form onsubmit="guardarRecepcion(event,'${id}')" class="space-y-3">
-    <p class="text-sm text-slate-600">Viene precargado con lo que dice la fábrica. Corregí lo que no coincida con lo que bajó del camión.</p>
+  modal(`Recibir remito N° ${numRemito(d.numero)}`, `<form onsubmit="guardarRecepcion(event,'${id}')" class="space-y-3">
+    <p class="text-sm text-slate-600">Viene precargado con lo que dice el remito de fábrica. Corregí lo que no coincida con lo que realmente llegó.</p>
     ${d.items.map((it,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(it.nombre)}</div><div class="text-xs text-slate-500">Orden N° ${it.ordenNumero} · enviado ${cant(it.cantidad)} ${esc(it.unidad)}</div></div>
       <input id="rc${k}" class="field num !w-24 text-right" inputmode="decimal" value="${it.cantidad}"><span class="text-xs text-slate-500 w-14">${esc(it.unidad)}</span></div>`).join('')}
     <div><label class="lbl" for="rNota">Comentario <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="rNota" placeholder="Ej.: faltaron 2 bultos, una caja llegó rota"></div>
@@ -511,7 +537,7 @@ async function guardarRecepcion(e, id){
         const todoDespachado = its.every(x=>Number(x.despachado||0) >= Number(x.cantidad||0));
         const estado = todoDespachado ? 'recibida' : od.estado;
         tx.update(db.collection('ordenes').doc(oid), { items:its, estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
-          historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:`Recepción del despacho N° ${d.numero}: `+porOrden[oid].map(x=>`${cant(x.recibido)} de ${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
+          historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:`Recepción del remito N° ${numRemito(d.numero)}: `+porOrden[oid].map(x=>`${cant(x.recibido)} de ${cant(x.cantidad)} ${x.unidad} ${x.nombre}`).join(', ') }) });
       }
     });
     cerrarModal(); toast(dif ? 'Recepción guardada con diferencias: quedan marcadas para revisar.' : 'Recepción confirmada: llegó todo.', dif?'info':'ok');
@@ -572,6 +598,190 @@ async function importarCatalogo(){
   try{ for(let i=0;i<nuevos.length;i+=400){ const b=db.batch(); nuevos.slice(i,i+400).forEach(p=>b.set(db.collection('prodProductos').doc('c_'+p.id.replace(/[\/]/g,'-')), { nombre:p.nombre, unidad, codigo:p.id, activo:true })); await b.commit(); }
     cerrarModal(); toast(`${nuevos.length} productos agregados.`); }
   catch(e){ toast(motivoError(e),'err'); }
+}
+
+
+/* ===================== REMITO IMPRESO ===================== */
+function numRemito(n){ return String(n||0).padStart(5,'0'); }
+function imprimirRemito(id){
+  const d = despachos.find(x=>x.id===id); if(!d) return;
+  const f = aFecha(d.creado) || new Date();
+  const filas = d.items.map(it=>{ const pf = productosF.find(p=>p.id===it.prodId);
+    return `<tr><td>${esc(pf&&pf.codigo||'')}</td><td>${esc(it.nombre)}</td><td class="c">${esc(it.ordenNumero)}</td><td class="n">${cant(it.cantidad)}</td><td>${esc(it.unidad)}</td><td class="vacia"></td></tr>`; }).join('');
+  const copia = titulo => `<section>
+    <header><div><div class="marca">trondial</div><div class="sub">Fábrica → Depósito de la distribuidora</div></div>
+      <div class="num"><div class="doc">REMITO DE SALIDA</div><div class="n0">N° ${numRemito(d.numero)}</div><div class="copia">${titulo}</div></div></header>
+    <div class="datos"><div><b>Fecha:</b> ${f.toLocaleDateString('es-UY')} ${f.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false})}</div><div><b>Camión / chofer:</b> ${esc(d.camion||'—')}</div><div><b>Preparó:</b> ${esc(d.creadoPor||'')}</div></div>
+    <table><thead><tr><th>Código</th><th>Producto</th><th class="c">Pedido N°</th><th class="n">Cantidad</th><th>Unidad</th><th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
+    <div class="obs"><b>Observaciones:</b></div>
+    <div class="firmas"><div>Entregó (fábrica)<span>Firma y aclaración</span></div><div>Transportó<span>Firma y aclaración</span></div><div>Recibió (depósito)<span>Firma, aclaración y fecha</span></div></div>
+  </section>`;
+  const w = window.open('', '_blank');
+  if(!w){ toast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Remito ${numRemito(d.numero)}</title>
+  <style>
+    *{ box-sizing:border-box; } body{ font-family:Arial,Helvetica,sans-serif; color:#111; margin:0; padding:16px; font-size:12px; }
+    section{ border:1.5px solid #111; padding:14px 16px; margin-bottom:14px; page-break-inside:avoid; }
+    header{ display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1.5px solid #111; padding-bottom:8px; }
+    .marca{ font-size:22px; font-weight:800; letter-spacing:-.5px; } .sub{ color:#444; margin-top:2px; }
+    .num{ text-align:right; } .doc{ font-weight:700; letter-spacing:.5px; } .n0{ font-size:22px; font-weight:800; } .copia{ font-size:10px; color:#444; text-transform:uppercase; }
+    .datos{ display:flex; gap:24px; flex-wrap:wrap; margin:10px 0; }
+    table{ width:100%; border-collapse:collapse; } th,td{ border:1px solid #111; padding:5px 6px; text-align:left; } th{ background:#eee; font-size:11px; }
+    .n{ text-align:right; } .c{ text-align:center; } .vacia{ width:90px; }
+    .obs{ border:1px solid #111; border-top:0; height:42px; padding:5px 6px; }
+    .firmas{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:34px; }
+    .firmas div{ border-top:1px solid #111; padding-top:4px; font-weight:700; } .firmas span{ display:block; font-weight:400; color:#444; font-size:10px; }
+    @media print{ body{ padding:0; } .no-print{ display:none; } }
+  </style></head><body>
+  <div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
+  ${copia('Original: viaja con la mercadería')}${copia('Copia: queda en fábrica')}
+  <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
+  w.document.close();
+}
+
+function imprimirPedido(id){
+  const o = ordenes.find(x=>x.id===id); if(!o) return;
+  const f = aFecha(o.creado);
+  const filas = (o.items||[]).map(x=>`<tr><td>${esc(x.codigo||'')}</td><td>${esc(x.nombre)}</td><td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td class="v"></td><td class="v"></td><td class="v"></td></tr>`).join('');
+  const w = window.open('', '_blank');
+  if(!w){ toast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Pedido ${o.numero}</title><style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:18px;font-size:12px}
+    header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px}
+    .marca{font-size:22px;font-weight:800} .doc{text-align:right;font-weight:700} .n0{font-size:24px;font-weight:800}
+    .urg{display:inline-block;background:#111;color:#fff;padding:2px 8px;font-weight:700;margin-top:4px}
+    .datos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 18px;margin:12px 0}
+    .notas{border:1px solid #111;padding:6px 8px;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #111;padding:6px} th{background:#eee;font-size:11px;text-align:left}
+    .n{text-align:right;font-weight:700} .v{width:90px}
+    .firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:40px} .firmas div{border-top:1px solid #111;padding-top:4px;font-weight:700}
+    @media print{ body{padding:0} .no-print{display:none} }
+  </style></head><body>
+  <div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
+  <header><div><div class="marca">trondial</div><div>Oficina de ventas → Fábrica</div></div>
+    <div class="doc">PEDIDO A FÁBRICA<div class="n0">N° ${o.numero}</div>${o.prioridad==='urgente'?'<div class="urg">URGENTE</div>':''}</div></header>
+  <div class="datos"><div><b>Fecha del pedido:</b> ${f?f.toLocaleDateString('es-UY'):''}</div><div><b>Para el:</b> ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}</div><div><b>Pidió:</b> ${esc(o.creadoPor||'')}</div></div>
+  ${o.notas?`<div class="notas"><b>Notas:</b> ${esc(o.notas)}</div>`:''}
+  <table><thead><tr><th>Código</th><th>Producto</th><th>Cantidad</th><th>Unidad</th><th>Producido</th><th>Lote</th><th>Observaciones</th></tr></thead><tbody>${filas}</tbody></table>
+  <div class="firmas"><div>Responsable de fábrica</div><div>Fecha de terminado</div></div>
+  <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
+  w.document.close();
+}
+
+/* ===================== EXCEL ===================== */
+// Estilos para la planilla (bordes, negritas, anchos) con xlsx-js-style
+const BORDE = { top:{style:'thin',color:{rgb:'999999'}}, bottom:{style:'thin',color:{rgb:'999999'}}, left:{style:'thin',color:{rgb:'999999'}}, right:{style:'thin',color:{rgb:'999999'}} };
+const EST = {
+  titulo: { font:{ bold:true, sz:16, name:'Arial' } },
+  dato:   { font:{ sz:11, name:'Arial' } },
+  datoB:  { font:{ bold:true, sz:11, name:'Arial' } },
+  enc:    { font:{ bold:true, color:{rgb:'FFFFFF'}, name:'Arial' }, fill:{ fgColor:{ rgb:'2F6FE4' } }, border:BORDE, alignment:{ vertical:'center', wrapText:true } },
+  celda:  { font:{ name:'Arial' }, border:BORDE, alignment:{ vertical:'center' } },
+  num:    { font:{ name:'Arial', bold:true }, border:BORDE, alignment:{ horizontal:'right', vertical:'center' }, numFmt:'#,##0.##' },
+  vacia:  { font:{ name:'Arial' }, border:BORDE, fill:{ fgColor:{ rgb:'FFF9DB' } } },
+};
+function hoja(filas, anchos, merges){
+  const ws = XLSX.utils.aoa_to_sheet(filas.map(f=>f.map(c=> (c && typeof c==='object' && 'v' in c) ? c.v : c)));
+  filas.forEach((f,r)=>f.forEach((c,col)=>{ if(c && typeof c==='object' && 's' in c){ const ref = XLSX.utils.encode_cell({r, c:col}); if(!ws[ref]) ws[ref]={ t:'s', v:'' }; ws[ref].s = c.s; } }));
+  ws['!cols'] = anchos.map(w=>({ wch:w }));
+  if(merges) ws['!merges'] = merges;
+  return ws;
+}
+const C = (v,s)=>({ v, s });
+function hojaPedido(o){
+  const f = aFecha(o.creado);
+  const filas = [
+    [C(`PEDIDO A FÁBRICA N° ${o.numero}`, EST.titulo)],
+    [],
+    [C(`Fecha del pedido: ${f?f.toLocaleDateString('es-UY'):''}`, EST.dato), '', '', C(`Para el: ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}`, EST.datoB)],
+    [C(`Prioridad: ${o.prioridad==='urgente'?'URGENTE':'Normal'}`, o.prioridad==='urgente'?EST.datoB:EST.dato), '', '', C(`Pidió: ${o.creadoPor||''}`, EST.dato)],
+    [C(`Notas: ${o.notas||'—'}`, EST.dato)],
+    [],
+    ['Código','Producto','Cantidad','Unidad','Producido','Lote','Observaciones'].map(t=>C(t, EST.enc)),
+    ...(o.items||[]).map(x=>[C(x.codigo||'',EST.celda), C(x.nombre,EST.celda), C(Number(x.cantidad||0),EST.num), C(x.unidad,EST.celda), C('',EST.vacia), C('',EST.vacia), C('',EST.vacia)]),
+    [],
+    [C('Las columnas amarillas se completan en fábrica.', { font:{ italic:true, sz:9, color:{rgb:'666666'}, name:'Arial' } })],
+    [], [],
+    [C('Responsable de fábrica: ______________________________', EST.dato), '', '', '', C('Fecha: ____ / ____ / ______', EST.dato)],
+  ];
+  const ws = hoja(filas, [8,32,9,8,10,8,14], [{ s:{r:0,c:0}, e:{r:0,c:6} }, { s:{r:2,c:0}, e:{r:2,c:2} }, { s:{r:2,c:3}, e:{r:2,c:6} }, { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:6} }, { s:{r:4,c:0}, e:{r:4,c:6} }]);
+  ws['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
+  return ws;
+}
+function exportarPedidos(ids){
+  const lista = ids.map(id=>ordenes.find(o=>o.id===id)).filter(Boolean).sort((a,b)=>(a.numero||0)-(b.numero||0));
+  if(!lista.length){ toast('No hay pedidos para exportar.','info'); return; }
+  const wb = XLSX.utils.book_new();
+  if(lista.length > 1){
+    // Resumen: cuánto producir de cada producto sumando todos los pedidos
+    const tot = {};
+    lista.forEach(o=>(o.items||[]).forEach(x=>{ const k = x.prodId+'|'+x.unidad; (tot[k] ||= { codigo:x.codigo||'', nombre:x.nombre, unidad:x.unidad, cant:0, pedidos:[] }); tot[k].cant += Number(x.cantidad||0); tot[k].pedidos.push(o.numero); }));
+    const filas = [
+      [C('RESUMEN DE PEDIDOS A FÁBRICA', EST.titulo)],
+      [C(`Pedidos N° ${lista.map(o=>o.numero).join(', ')} · exportado el ${new Date().toLocaleDateString('es-UY')}`, EST.dato)],
+      [],
+      ['Código','Producto','Total a producir','Unidad','Pedidos N°'].map(t=>C(t, EST.enc)),
+      ...Object.values(tot).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(r=>[C(r.codigo,EST.celda), C(r.nombre,EST.celda), C(r.cant,EST.num), C(r.unidad,EST.celda), C(r.pedidos.join(', '),EST.celda)]),
+    ];
+    const wr = hoja(filas, [9,40,13,8,18], [{ s:{r:0,c:0}, e:{r:0,c:4} }]); wr['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
+    XLSX.utils.book_append_sheet(wb, wr, 'Resumen');
+  }
+  lista.forEach(o=> XLSX.utils.book_append_sheet(wb, hojaPedido(o), `Pedido ${o.numero}`));
+  XLSX.writeFile(wb, lista.length===1 ? `pedido_fabrica_${lista[0].numero}.xlsx` : `pedidos_fabrica_${hoyKey()}.xlsx`);
+}
+function abrirExportarPedidos(){
+  const abiertas = ordenes.filter(o=>!['recibida','cancelada'].includes(o.estado)).sort((a,b)=>(a.numero||0)-(b.numero||0));
+  const grupos = [
+    ['nuevas', 'Pedidos nuevos y aceptados (para planificar)', abiertas.filter(o=>['nueva','aceptada','cambio'].includes(o.estado))],
+    ['produccion', 'En producción', abiertas.filter(o=>o.estado==='produccion')],
+    ['abiertas', 'Todos los abiertos', abiertas],
+  ];
+  modal('Exportar pedidos a Excel', `<p class="text-sm text-slate-600 mb-4">Se genera un Excel con una hoja por pedido, lista para imprimir, y si son varios, una hoja de resumen con el total a producir de cada producto.</p>
+    <div class="space-y-2">${grupos.map(([k,t,l])=>`<button onclick="exportarPedidos(${JSON.stringify(l.map(o=>o.id)).replace(/"/g,"'")}); cerrarModal()" ${l.length?'':'disabled'} class="w-full text-left rounded-xl bg-niebla hover:bg-brand-50 disabled:opacity-50 px-4 py-3 flex items-center justify-between"><span class="font-semibold">${t}</span><span class="text-sm text-slate-500">${l.length} pedido${l.length===1?'':'s'}</span></button>`).join('')}</div>
+    <div class="mt-4 text-xs text-slate-500">También podés exportar un pedido solo desde su detalle.</div>`);
+}
+
+/* ===================== INGRESO A OPUS (oficina) ===================== */
+function vOpus(){
+  const pend = despachos.filter(d=>['recibido','diferencias','revisado'].includes(d.estado) && !d.ingresadoOpus).sort((a,b)=>(a.numero||0)-(b.numero||0));
+  const hechos = despachos.filter(d=>d.ingresadoOpus).sort((a,b)=>(b.numero||0)-(a.numero||0)).slice(0,30);
+  return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Ingreso a Opus</h1>
+        <p class="text-slate-500 mt-1 max-w-2xl">Lo que el depósito ya recibió y falta cargar en Opus. Se carga <b>lo recibido</b>, no lo que decía el remito: si hubo diferencias, ya están descontadas.</p></div>
+      ${pend.length?`<button onclick="exportarOpus(${JSON.stringify(pend.map(d=>d.id)).replace(/"/g,"'")})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel de todo lo pendiente</button>`:''}
+    </div>
+    <div class="grid md:grid-cols-2 gap-4 mb-8">${pend.map(d=>tarjetaDespacho(d, `<div class="grid grid-cols-2 gap-2 mt-4"><button onclick="exportarOpus(['${d.id}'])" class="border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Excel</button>
+      <button onclick="marcarOpus('${d.id}')" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Ya lo ingresé</button></div>`)).join('') || '<div class="bg-white rounded-2xl p-8 text-slate-500">No hay recepciones pendientes de ingresar a Opus.</div>'}</div>
+    ${hechos.length?`<details><summary class="font-semibold text-sm text-slate-500 cursor-pointer">Ingresados recientemente (${hechos.length})</summary><div class="grid md:grid-cols-2 gap-4 mt-3">${hechos.map(d=>tarjetaDespacho(d)).join('')}</div></details>`:''}`;
+}
+function exportarOpus(ids){
+  const lista = ids.map(id=>despachos.find(d=>d.id===id)).filter(Boolean);
+  const filas = [
+    [C('INGRESO A OPUS: MERCADERÍA RECIBIDA DE FÁBRICA', EST.titulo)],
+    [C(`Exportado el ${new Date().toLocaleDateString('es-UY')} · remitos N° ${lista.map(d=>numRemito(d.numero)).join(', ')}`, EST.dato)],
+    [],
+    ['Remito N°','Fecha recepción','Pedido N°','Código','Producto','Cantidad recibida','Unidad','Enviado según remito','Diferencia','Cargado en Opus'].map(t=>C(t, EST.enc)),
+  ];
+  lista.forEach(d=>{ const fr = aFecha(d.recibidoEn);
+    d.items.forEach(it=>{ const pf = productosF.find(p=>p.id===it.prodId); const dif = Number(it.recibido||0) - Number(it.cantidad||0);
+      filas.push([C(numRemito(d.numero),EST.celda), C(fr?fr.toLocaleDateString('es-UY'):'',EST.celda), C(it.ordenNumero,EST.celda), C(pf&&pf.codigo||'',EST.celda), C(it.nombre,EST.celda),
+        C(Number(it.recibido||0),EST.num), C(it.unidad,EST.celda), C(Number(it.cantidad||0),EST.celda), C(dif, dif ? { ...EST.num, font:{ name:'Arial', bold:true, color:{ rgb:'C81E1E' } } } : EST.celda), C('',EST.vacia)]); }); });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, hoja(filas, [11,15,10,12,40,16,10,18,11,15], [{ s:{r:0,c:0}, e:{r:0,c:9} }]), 'Ingreso a Opus');
+  XLSX.writeFile(wb, lista.length===1 ? `opus_remito_${numRemito(lista[0].numero)}.xlsx` : `opus_pendiente_${hoyKey()}.xlsx`);
+}
+function marcarOpus(id){
+  const d = despachos.find(x=>x.id===id);
+  modal(`Remito N° ${numRemito(d.numero)} en Opus`, `<form onsubmit="event.preventDefault(); guardarOpus('${id}')" class="space-y-4">
+    <p class="text-sm text-slate-600">Confirmá que ya cargaste en Opus lo recibido de este remito.</p>
+    <div><label class="lbl" for="opC">N° de comprobante en Opus <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="opC"></div>
+    <div id="opErr" class="text-sm text-rose-600"></div>
+    <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Marcar como ingresado</button></form>`);
+}
+async function guardarOpus(id){
+  try{ await db.collection('despachos').doc(id).update({ ingresadoOpus:true, comprobanteOpus:$('opC').value.trim(), ingresadoPor:yo(), ingresadoEn:FV.serverTimestamp(), dia:hoyKey() });
+    cerrarModal(); toast('Marcado como ingresado en Opus.'); }
+  catch(e){ $('opErr').textContent = motivoError(e); }
 }
 
 render();
