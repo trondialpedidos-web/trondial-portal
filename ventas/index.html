@@ -168,7 +168,7 @@ async function commitEnLotes(operaciones){
 
 /* ===================== INGRESO Y DATOS ===================== */
 firebase.auth().onAuthStateChanged(user=>{
-  if(!user || !user.emailVerified){ location.href='../'; return; }
+  if(!user || user.isAnonymous){ location.href='../'; return; }
   db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
     perfil = doc.exists ? doc.data() : null;
     const n = (perfil && perfil.activo) ? (perfil.dueno ? 'admin' : ((perfil.permisos||{}).ventas||'')) : '';
