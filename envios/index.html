@@ -304,7 +304,7 @@ function iniciarFirebase(){
     let unsubPerfil = null;
     firebase.auth().onAuthStateChanged(user=>{
       if(unsubPerfil){ unsubPerfil(); unsubPerfil = null; }
-      if(!user || !user.emailVerified){ irAlPortal(); return; }
+      if(!user || user.isAnonymous){ irAlPortal(); return; }
       unsubPerfil = db.collection('usuarios').doc(user.uid).onSnapshot(doc=>{
         perfilPortal = doc.exists ? doc.data() : null;
         const u = perfilPortal;
