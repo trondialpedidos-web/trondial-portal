@@ -88,6 +88,18 @@ let usuario = null;          // usuario de Firebase Auth
 let perfil = null;           // ficha en /usuarios/{uid}
 let unsubPerfil = null;
 let activando = false;
+// Código de invitación: llega en el link (?inv=…) o se escribe a mano
+let codigoPendiente = '';
+const ALFABETO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // sin 0/O, 1/I/L para no confundir
+function normCodigo(c){ return String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function lindoCodigo(c){ c = normCodigo(c); return c.slice(0,4)+'-'+c.slice(4); }
+function nuevoCodigo(){ const a = new Uint32Array(8); crypto.getRandomValues(a); return [...a].map(x=>ALFABETO[x % ALFABETO.length]).join(''); }
+(function leerLink(){
+  const q = new URLSearchParams(location.search); const inv = q.get('inv');
+  if(inv){ codigoPendiente = normCodigo(inv); try{ sessionStorage.setItem('invPend', codigoPendiente); }catch(e){}
+    history.replaceState(null,'', location.pathname + location.hash); vista = 'registro'; }
+  else { try{ codigoPendiente = sessionStorage.getItem('invPend') || ''; }catch(e){} }
+})();
 let datosUsuarios = { usuarios:[], invitaciones:[], repartidores:[] };
 let unsubUsuarios = [];
 let migracion = { estado:'inicial', conteos:null, log:[] };
@@ -146,7 +158,7 @@ auth.onAuthStateChanged(async u=>{
   if(unsubPerfil){ unsubPerfil(); unsubPerfil=null; }
   perfil = null; detenerUsuarios();
   if(!u){ if(vista!=='registro') vista='login'; render(); return; }
-  if(!u.emailVerified){ vista='verificar'; render(); return; }
+  if(!u.emailVerified && (u.email||'').toLowerCase()===OWNER_EMAIL){ vista='verificar'; render(); return; }
   escucharPerfil();
 });
 
@@ -173,7 +185,8 @@ function vistaPedida(){
   return null;
 }
 
-// Primera vez que entra alguien con su correo verificado: se crea su ficha.
+// Primera vez que entra alguien: se crea su ficha. El dueño se activa con su correo confirmado;
+// el resto, con el código de su invitación (no depende de ningún mail).
 async function activarCuenta(){
   if(activando) return; activando = true;
   const email = (usuario.email||'').toLowerCase();
@@ -187,18 +200,31 @@ async function activarCuenta(){
       });
       return; // el listener del perfil se dispara solo
     }
-    const inv = await db.collection('invitaciones').doc(email).get();
-    if(!inv.exists){ vista='sinInvitacion'; render(); return; }
+    if(!codigoPendiente){ vista='sinInvitacion'; mensajeCodigo=''; render(); return; }
+    let inv;
+    try{ inv = await db.collection('invitaciones').doc(codigoPendiente).get(); }
+    catch(e){ inv = null; }   // si el código es de otro correo, Firebase no deja leerlo
+    if(!inv || !inv.exists){ vista='sinInvitacion'; mensajeCodigo = `El código ${lindoCodigo(codigoPendiente)} no es válido para ${email}, o ya se usó. Revisá que estés usando el mismo correo de la invitación.`; render(); return; }
     const d = inv.data();
-    const ficha = { nombre:d.nombre, email, dueno:false, activo:true, permisos:d.permisos||{},
+    if((d.email||'').toLowerCase() !== email){ vista='sinInvitacion'; mensajeCodigo = `Esa invitación es para otro correo. Entrá con el correo al que te invitaron.`; render(); return; }
+    const ficha = { nombre:d.nombre, email, dueno:false, activo:true, permisos:d.permisos||{}, codigoInvitacion: codigoPendiente,
       creado: firebase.firestore.FieldValue.serverTimestamp(), actualizado: firebase.firestore.FieldValue.serverTimestamp() };
     if(d.repartidorId) ficha.repartidorId = d.repartidorId;
     await db.collection('usuarios').doc(usuario.uid).set(ficha);
-    await db.collection('invitaciones').doc(email).delete().catch(()=>{});
+    await db.collection('invitaciones').doc(codigoPendiente).delete().catch(()=>{});
+    codigoPendiente=''; try{ sessionStorage.removeItem('invPend'); }catch(e){}
   }catch(e){
     console.error('No se pudo activar la cuenta', e);
-    vista='sinInvitacion'; render();
+    vista='sinInvitacion'; mensajeCodigo='No se pudo activar la cuenta con ese código. Probá de nuevo o pedí una invitación nueva.'; render();
   }finally{ activando=false; }
+}
+let mensajeCodigo = '';
+async function usarCodigo(e){
+  e.preventDefault();
+  codigoPendiente = normCodigo($('cCodigo').value);
+  if(codigoPendiente.length < 8){ mensajeCodigo='El código tiene 8 letras y números.'; render(); return; }
+  try{ sessionStorage.setItem('invPend', codigoPendiente); }catch(e){}
+  vista='cargando'; render(); await activarCuenta();
 }
 
 // Manda el mail de confirmación. Si Firebase rechaza la dirección de regreso al portal
@@ -222,16 +248,21 @@ async function ingresar(e){
 }
 async function registrar(e){
   e.preventDefault();
-  const email = $('rEmail').value.trim(), p1 = $('rPass').value, p2 = $('rPass2').value;
+  const email = $('rEmail').value.trim(), p1 = $('rPass').value, p2 = $('rPass2').value, cod = normCodigo($('rCodigo').value);
+  if(cod.length < 8){ $('rErr').textContent='Poné el código de tu invitación (8 letras y números).'; return; }
   if(p1.length < 6){ $('rErr').textContent='La contraseña tiene que tener al menos 6 caracteres.'; return; }
   if(p1 !== p2){ $('rErr').textContent='Las contraseñas no coinciden.'; return; }
+  codigoPendiente = cod; try{ sessionStorage.setItem('invPend', cod); }catch(e){}
   const btn = $('rBtn'); btn.disabled=true; btn.textContent='Creando…';
-  try{
-    const cred = await auth.createUserWithEmailAndPassword(email, p1);
-    vista='verificar'; render();
-    try{ await mandarVerificacion(cred.user); toast('Te mandamos el mail de confirmación.'); }
-    catch(err){ console.error(err); toast(errorAuth(err),'err'); }
-  }catch(err){ const el=$('rErr'); if(el){ el.textContent = errorAuth(err); } btn.disabled=false; btn.textContent='Crear mi contraseña'; }
+  try{ await auth.createUserWithEmailAndPassword(email, p1); }
+  catch(err){
+    // Si ya había creado la cuenta antes (por ejemplo con el sistema anterior), entra con esa contraseña
+    if(err && err.code==='auth/email-already-in-use'){
+      try{ await auth.signInWithEmailAndPassword(email, p1); return; }
+      catch(e2){ $('rErr').textContent='Ese correo ya tiene cuenta con otra contraseña. Entrá con "Ya tengo contraseña" o usá "Olvidé mi contraseña".'; }
+    } else { const el=$('rErr'); if(el) el.textContent = errorAuth(err); }
+    btn.disabled=false; btn.textContent='Crear mi contraseña';
+  }
 }
 async function olvide(){
   const email = ($('lEmail') && $('lEmail').value.trim()) || '';
@@ -299,14 +330,15 @@ function vLogin(){
     <button onclick="olvide()" class="mt-3 text-sm text-slate-500 hover:text-brand-700 font-medium">Olvidé mi contraseña</button>
     <div class="mt-6 pt-5 border-t border-slate-100 text-sm text-slate-600">
       ¿Es tu primera vez? <button onclick="vista='registro'; render()" class="font-semibold text-brand-700 hover:underline">Creá tu contraseña</button>
-      <div class="text-xs text-slate-400 mt-1">Solo funciona con el correo con el que te invitaron.</div>
+      <div class="text-xs text-slate-400 mt-1">Necesitás el código de invitación que te mandó el administrador.</div>
     </div>`);
 }
 function vRegistro(){
   return tarjetaCentro(`
     <h1 class="font-display text-3xl font-extrabold tracking-tight">Primera vez</h1>
-    <p class="text-sm text-slate-500 mt-1 mb-6">Usá el correo con el que te invitaron y elegí una contraseña. Después te llega un mail para confirmar que el correo es tuyo.</p>
+    <p class="text-sm text-slate-500 mt-1 mb-6">Poné el correo con el que te invitaron, elegí una contraseña y listo: entrás en el momento.</p>
     <form onsubmit="registrar(event)" class="space-y-4" novalidate>
+      <div><label class="lbl" for="rCodigo">Código de invitación</label><input class="field font-display text-lg tracking-[.2em] uppercase" id="rCodigo" autocomplete="off" value="${esc(codigoPendiente?lindoCodigo(codigoPendiente):'')}" placeholder="XXXX-XXXX"></div>
       <div><label class="lbl" for="rEmail">Correo</label><input class="field" id="rEmail" type="email" autocomplete="email" required></div>
       <div><label class="lbl" for="rPass">Contraseña <span class="font-normal text-slate-400">(mínimo 6 caracteres)</span></label><input class="field" id="rPass" type="password" autocomplete="new-password" required></div>
       <div><label class="lbl" for="rPass2">Repetí la contraseña</label><input class="field" id="rPass2" type="password" autocomplete="new-password" required></div>
@@ -328,10 +360,14 @@ function vVerificar(){
 }
 function vSinInvitacion(){
   return tarjetaCentro(`
-    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4"><i data-lucide="user-x" class="w-6 h-6"></i></div>
-    <h1 class="text-xl font-extrabold text-slate-900">Este correo no tiene acceso</h1>
-    <p class="text-sm text-slate-600 mt-2"><b>${esc(usuario && usuario.email)}</b> no tiene una invitación al portal. Pedile al administrador que te invite con este mismo correo y después volvé a entrar.</p>
-    <button onclick="location.reload()" class="w-full mt-6 border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Ya me invitaron, reintentar</button>
+    <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4"><i data-lucide="key-round" class="w-6 h-6"></i></div>
+    <h1 class="font-display text-2xl font-extrabold">Falta tu código de invitación</h1>
+    <p class="text-sm text-slate-600 mt-2">Entraste como <b>${esc(usuario && usuario.email)}</b>. Para activar tu acceso, poné el código que te mandó el administrador.</p>
+    <form onsubmit="usarCodigo(event)" class="mt-5 space-y-3">
+      <input class="field font-display text-lg tracking-[.2em] uppercase" id="cCodigo" autocomplete="off" placeholder="XXXX-XXXX" value="${esc(codigoPendiente?lindoCodigo(codigoPendiente):'')}">
+      ${mensajeCodigo?`<div class="text-sm text-rose-600">${esc(mensajeCodigo)}</div>`:''}
+      <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Activar mi acceso</button>
+    </form>
     <button onclick="salir()" class="w-full mt-2 text-sm text-slate-500 hover:text-rose-600 font-medium py-2">Usar otro correo</button>`);
 }
 function vInactivo(){
@@ -484,7 +520,7 @@ function escucharUsuarios(){
   detenerUsuarios();
   const err = e => { console.error(e); toast('No se pudieron cargar los usuarios.','err'); };
   unsubUsuarios.push(db.collection('usuarios').onSnapshot(s=>{ datosUsuarios.usuarios = s.docs.map(d=>({uid:d.id, ...d.data()})); if(vista==='usuarios') render(); }, err));
-  unsubUsuarios.push(db.collection('invitaciones').onSnapshot(s=>{ datosUsuarios.invitaciones = s.docs.map(d=>({email:d.id, ...d.data()})); if(vista==='usuarios') render(); }, err));
+  unsubUsuarios.push(db.collection('invitaciones').onSnapshot(s=>{ datosUsuarios.invitaciones = s.docs.map(d=>({codigo:d.id, ...d.data()})).filter(x=>x.email); if(vista==='usuarios') render(); }, err));
   unsubUsuarios.push(db.collection('repartidores').onSnapshot(s=>{ datosUsuarios.repartidores = s.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es')); if(vista==='usuarios') render(); }, err));
 }
 function detenerUsuarios(){ unsubUsuarios.forEach(f=>f()); unsubUsuarios=[]; }
@@ -521,8 +557,8 @@ function vUsuarios(){
         <div class="mt-1.5 flex flex-wrap gap-1">${chipsPermisos(i.permisos, i.repartidorId)}</div>
       </div>
       <div class="flex flex-col sm:flex-row gap-2 shrink-0">
-        <button onclick="mostrarMensajeInvitacion('${esc(i.email)}')" class="text-sm font-semibold text-brand-700 border border-brand-200 rounded-lg px-3 py-1.5">Mensaje</button>
-        <button onclick="cancelarInvitacion('${esc(i.email)}')" class="text-sm font-semibold text-slate-400 hover:text-rose-600 px-2 py-1.5">Cancelar</button>
+        ${i.codigo.includes('@') ? '<span class="text-xs text-amber-700 font-semibold">Formato viejo: cancelala y creala de nuevo</span>' : `<button onclick="mostrarMensajeInvitacion('${esc(i.codigo)}')" class="text-sm font-semibold text-brand-700 border border-brand-200 rounded-lg px-3 py-1.5">Mensaje</button>`}
+        <button onclick="cancelarInvitacion('${esc(i.codigo)}')" class="text-sm font-semibold text-slate-400 hover:text-rose-600 px-2 py-1.5">Cancelar</button>
       </div>
     </div>`).join('');
   return `
@@ -572,7 +608,7 @@ function abrirInvitar(){
     <form onsubmit="guardarInvitacion(event)" class="space-y-4" novalidate>
       <div><label class="lbl" for="iNombre">Nombre</label><input class="field" id="iNombre" required placeholder="Ej.: Diego Fernández"></div>
       <div><label class="lbl" for="iEmail">Correo</label><input class="field" id="iEmail" type="email" required placeholder="correo@ejemplo.com">
-        <div class="text-xs text-slate-400 mt-1">Tiene que ser un correo que la persona revise: ahí le llega la confirmación.</div></div>
+        <div class="text-xs text-slate-400 mt-1">Es el correo con el que va a entrar. No le llega ningún mail: el acceso va en el link que le mandás.</div></div>
       ${camposPermisos({}, '')}
       <div id="iErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
       <button class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-xl">Crear invitación</button>
@@ -586,22 +622,29 @@ async function guardarInvitacion(e){
   if(datosUsuarios.usuarios.some(u=>(u.email||'').toLowerCase()===email)){ $('iErr').textContent='Ese correo ya tiene usuario. Editalo desde la lista.'; return; }
   const lp = leerPermisos(); if(lp.error){ $('iErr').textContent=lp.error; return; }
   if(!Object.keys(lp.per).length){ $('iErr').textContent='Dale acceso al menos a un módulo.'; return; }
-  const inv = { nombre, email, permisos: lp.per, invitadoPor: usuario.email, creado: firebase.firestore.FieldValue.serverTimestamp() };
+  const codigo = nuevoCodigo();
+  const inv = { codigo, nombre, email, permisos: lp.per, invitadoPor: usuario.email, creado: firebase.firestore.FieldValue.serverTimestamp() };
   if(lp.repId) inv.repartidorId = lp.repId;
   try{
-    await db.collection('invitaciones').doc(email).set(inv);
-    cerrarModal(); mostrarMensajeInvitacion(email, inv);
-  }catch(err){ console.error(err); $('iErr').textContent='No se pudo guardar la invitación.'; }
+    const b = db.batch();
+    // Si ya había una invitación para ese correo, se reemplaza por la nueva
+    datosUsuarios.invitaciones.filter(x=>x.email===email).forEach(x=> b.delete(db.collection('invitaciones').doc(x.codigo)));
+    b.set(db.collection('invitaciones').doc(codigo), inv);
+    await b.commit();
+    cerrarModal(); mostrarMensajeInvitacion(codigo, inv);
+  }catch(err){ console.error(err); $('iErr').textContent='No se pudo guardar la invitación. Revisá que estén publicadas las reglas de Firestore más nuevas.'; }
 }
-function textoInvitacion(nombre, email){
-  return `Hola ${nombre.split(' ')[0]}! Te di acceso a Trondial Portal.\n\n1. Entrá a ${urlPortal()}\n2. Tocá "Creá tu contraseña" y usá este correo: ${email}\n3. Te va a llegar un mail para confirmar el correo: tocá el link y volvé a la página.\n\nEntrás una sola vez y queda la sesión guardada en el celular.`;
+function linkInvitacion(codigo){ return urlPortal() + '?inv=' + codigo; }
+function textoInvitacion(inv){
+  return `Hola ${inv.nombre.split(' ')[0]}! Te di acceso a Trondial Portal.\n\n1. Abrí este link: ${linkInvitacion(inv.codigo)}\n2. Poné tu correo (${inv.email}) y elegí una contraseña.\n\nListo, entrás en el momento y queda la sesión guardada.\nSi te pide código: ${lindoCodigo(inv.codigo)}`;
 }
-function mostrarMensajeInvitacion(email, inv){
-  inv = inv || datosUsuarios.invitaciones.find(i=>i.email===email); if(!inv) return;
-  const txt = textoInvitacion(inv.nombre, email);
+function mostrarMensajeInvitacion(codigo, inv){
+  inv = inv || datosUsuarios.invitaciones.find(i=>i.codigo===codigo); if(!inv) return;
+  const txt = textoInvitacion(inv);
   modal('Invitación lista', `
-    <p class="text-sm text-slate-600 mb-3">Mandale este mensaje a <b>${esc(inv.nombre)}</b> por WhatsApp. Cuando cree su contraseña, entra con los permisos que elegiste.</p>
-    <textarea id="invTxt" class="field h-44 text-sm" readonly>${esc(txt)}</textarea>
+    <p class="text-sm text-slate-600 mb-3">Mandale este mensaje a <b>${esc(inv.nombre)}</b> por WhatsApp. No hace falta que le llegue ningún mail: con el link entra directo.</p>
+    <div class="flex items-center justify-between bg-niebla rounded-xl px-4 py-3 mb-3"><span class="text-sm text-slate-500">Código</span><span class="font-display text-2xl font-extrabold tracking-[.15em]">${lindoCodigo(inv.codigo)}</span></div>
+    <textarea id="invTxt" class="field h-40 text-sm" readonly>${esc(txt)}</textarea>
     <div class="grid grid-cols-2 gap-2 mt-3">
       <button onclick="copiarInvitacion()" class="border border-slate-300 font-semibold py-2.5 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="copy" class="w-4 h-4"></i>Copiar</button>
       <a href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="message-circle" class="w-4 h-4"></i>WhatsApp</a>
@@ -611,9 +654,10 @@ function copiarInvitacion(){
   const t = $('invTxt'); t.select();
   (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject()).then(()=>toast('Mensaje copiado.')).catch(()=>{ document.execCommand('copy'); toast('Mensaje copiado.'); });
 }
-async function cancelarInvitacion(email){
-  if(!confirm('¿Cancelar la invitación de '+email+'?')) return;
-  try{ await db.collection('invitaciones').doc(email).delete(); toast('Invitación cancelada.','info'); }catch(e){ toast('No se pudo cancelar.','err'); }
+async function cancelarInvitacion(codigo){
+  const inv = datosUsuarios.invitaciones.find(i=>i.codigo===codigo);
+  if(!confirm('¿Cancelar la invitación de '+(inv?inv.email:'')+'? El link deja de funcionar.')) return;
+  try{ await db.collection('invitaciones').doc(codigo).delete(); toast('Invitación cancelada.','info'); }catch(e){ toast('No se pudo cancelar.','err'); }
 }
 
 function abrirEditarUsuario(uid){
