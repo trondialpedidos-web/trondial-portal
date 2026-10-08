@@ -574,6 +574,7 @@ function renderAdmin(){
       ${adminTab==='pedidos' ? `
         <div class="flex gap-2">
           <button onclick="openImportModal()" class="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg text-slate-400 hover:text-slate-600 text-xs font-semibold"><i data-lucide="upload" class="w-3.5 h-3.5"></i>Importar Excel</button>
+          <button onclick="openImprimirRutaModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-brand-300 text-slate-700 text-sm font-semibold"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir hoja de ruta</button>
           <button onclick="openNuevaRutaModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-brand-300 bg-brand-50 hover:bg-brand-100 text-brand-700 text-sm font-semibold shadow-soft"><i data-lucide="route" class="w-4 h-4"></i>Nueva ruta</button>
           <button onclick="openNuevoPedidoModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-800 text-white text-sm font-semibold shadow-soft"><i data-lucide="plus" class="w-4 h-4"></i>Nuevo pedido</button>
         </div>` : ''}
@@ -795,7 +796,7 @@ function detallePedidoHtml(p, colspan){
   if(p.estado==='entregado' && comprobante){
     bloqueEstado = `<div class="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
       <div class="font-semibold flex items-center gap-1.5"><i data-lucide="check-circle-2" class="w-4 h-4"></i>Entregado el ${fmtFecha(comprobante.fechaHora)}</div>
-      <div class="mt-1">Recibió: <b>${comprobante.nombreReceptor}</b> · CI ${comprobante.cedulaReceptor}</div>
+      <div class="mt-1">Recibió: <b>${comprobante.nombreReceptor}</b> · CI ${comprobante.cedulaReceptor}${comprobante.bultosEntregados!=null?` · <b>${comprobante.bultosEntregados}</b> bultos entregados${Number(comprobante.bultosEntregados)!==Number(p.bultos||0)?` <span class="text-rose-600 font-semibold">(pedido: ${p.bultos})</span>`:''}`:''}</div>
     </div>`;
   } else if(p.estado==='noentregado' && intento){
     bloqueEstado = `<div class="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
@@ -1829,7 +1830,7 @@ function deleteCliente(id){
 
 /* ============ MODALES ADMIN ============ */
 function modalShell(title, bodyHtml, wide){
-  return `<div class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4" onclick="if(event.target===this) closeModal()">
+  return `<div class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl w-full ${wide?'max-w-2xl':'max-w-md'} max-h-[90vh] overflow-y-auto fade-in">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
         <h3 class="font-bold text-slate-800">${title}</h3>
@@ -2120,7 +2121,7 @@ function openNuevaRutaModal(){
       </div>
       <div>
         <label class="text-xs font-semibold text-slate-500">Buscar cliente para agregar a la ruta</label>
-        <input id="rutaClienteSearch" oninput="buscarClientesRuta(this.value)" placeholder="Nombre, dirección o número de cuenta..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1" autocomplete="off">
+        <input id="rutaClienteSearch" oninput="buscarClientesRuta(this.value)" onkeydown="teclaBusquedaRuta(event)" placeholder="Nombre, dirección o número de cuenta..." class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1" autocomplete="off">
         <div id="rutaResultados" class="mt-1"></div>
       </div>
       <div id="rutaBodyWrap">${renderRutaStopsYFooter()}</div>
@@ -2129,21 +2130,31 @@ function openNuevaRutaModal(){
   if(window.lucide) lucide.createIcons();
 }
 function actualizarRutaCampo(campo, valor){ nuevaRuta[campo] = valor; }
+let rutaResultados = [], rutaSel = 0;
+function teclaBusquedaRuta(e){
+  if(e.key==='Enter'){ e.preventDefault(); if(rutaResultados[rutaSel]) agregarClienteARuta(rutaResultados[rutaSel].id); return; }
+  if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+    e.preventDefault(); if(!rutaResultados.length) return;
+    rutaSel = (rutaSel + (e.key==='ArrowDown'?1:-1) + rutaResultados.length) % rutaResultados.length;
+    document.querySelectorAll('#rutaResultados [data-idx]').forEach(b=> b.classList.toggle('bg-brand-50', Number(b.dataset.idx)===rutaSel));
+  }
+}
 function buscarClientesRuta(texto){
   const wrap = document.getElementById('rutaResultados');
   const q = texto.trim().toLowerCase();
   if(q.length < 2){ wrap.innerHTML = ''; return; }
   const yaAgregados = new Set(nuevaRuta.stops.map(s=>s.clienteId));
   const matches = state.clientesDB.filter(c => !yaAgregados.has(c.id) && (c.nombre+' '+c.direccion+' '+c.id).toLowerCase().includes(q)).slice(0, 8);
+  rutaResultados = matches; rutaSel = 0;
   if(matches.length === 0){ wrap.innerHTML = '<div class="text-xs text-slate-400 px-2 py-2">Sin resultados.</div>'; return; }
   wrap.innerHTML = `<div class="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100 max-h-56 overflow-y-auto">
-    ${matches.map(c=>`
-      <button type="button" onclick="agregarClienteARuta('${c.id}')" class="w-full text-left px-3 py-2 hover:bg-brand-50 flex items-center justify-between gap-2">
+    ${matches.map((c,i)=>`
+      <button type="button" data-idx="${i}" onclick="agregarClienteARuta('${c.id}')" class="w-full text-left px-3 py-2 hover:bg-brand-50 flex items-center justify-between gap-2 ${i===0?'bg-brand-50':''}">
         <span><span class="font-semibold text-slate-800 text-sm">${c.nombre}</span><span class="block text-xs text-slate-500">${c.direccion}</span></span>
         <i data-lucide="plus-circle" class="w-4 h-4 text-brand-600 shrink-0"></i>
       </button>
     `).join('')}
-  </div>`;
+  </div><div class="text-[11px] text-slate-400 mt-1 px-1">Enter agrega el resaltado · flechas para moverte</div>`;
   if(window.lucide) lucide.createIcons();
 }
 function agregarClienteARuta(clienteId){
@@ -2152,6 +2163,7 @@ function agregarClienteARuta(clienteId){
   nuevaRuta.stops.push({ clienteId: c.id, nombre: c.nombre, direccion: c.direccion, telefono: c.telefono||'', bultos: 1, pallets: 0 });
   const search = document.getElementById('rutaClienteSearch');
   if(search) search.value = '';
+  rutaResultados = []; rutaSel = 0;
   document.getElementById('rutaResultados').innerHTML = '';
   document.getElementById('rutaBodyWrap').innerHTML = renderRutaStopsYFooter();
   if(window.lucide) lucide.createIcons();
@@ -2223,9 +2235,58 @@ function confirmarNuevaRuta(){
   const fechaFmt = new Date(nuevaRuta.fecha+'T00:00:00').toLocaleDateString('es-UY',{day:'2-digit',month:'2-digit',year:'numeric'});
   const nombreRep = repartidorNombre(nuevaRuta.repartidorId);
   const cant = nuevaRuta.stops.length;
+  const repRuta = nuevaRuta.repartidorId, fechaRuta = nuevaRuta.fecha;
   closeModal();
   showToast('Ruta creada: '+cant+' cliente'+(cant===1?'':'s')+' para '+nombreRep+' el '+fechaFmt+'.');
   renderAdmin();
+  document.getElementById('modalRoot').innerHTML = modalShell('Ruta creada', `
+    <p class="text-sm text-slate-600">${cant} cliente${cant===1?'':'s'} para <b>${esc(nombreRep)}</b> el ${fechaFmt}. ¿Imprimís la hoja de ruta para el chofer?</p>
+    <div class="grid grid-cols-2 gap-2 mt-4"><button onclick="closeModal()" class="border border-slate-200 font-semibold py-2.5 rounded-lg">Ahora no</button>
+      <button onclick="imprimirHojaRuta('${repRuta}','${fechaRuta}'); closeModal()" class="bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-lg inline-flex items-center justify-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button></div>`);
+  if(window.lucide) lucide.createIcons();
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function openImprimirRutaModal(){
+  // Repartidor y fecha con pedidos: se sugiere la ruta de hoy del primer repartidor que tenga
+  const conPedidos = state.pedidos.filter(p=>p.estado!=='anulado' && p.repartidorId && p.fechaEnvio);
+  const hoy = hoyKey(); const sug = conPedidos.find(p=>p.fechaEnvio===hoy) || conPedidos[0];
+  document.getElementById('modalRoot').innerHTML = modalShell('Imprimir hoja de ruta', `
+    <div class="space-y-3">
+      <div><label class="text-xs font-semibold text-slate-500">Repartidor</label>
+        <select id="hrRep" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1">${state.repartidores.map(r=>`<option value="${r.id}" ${sug&&sug.repartidorId===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('')}</select></div>
+      <div><label class="text-xs font-semibold text-slate-500">Fecha de envío</label>
+        <input type="date" id="hrFecha" value="${sug?sug.fechaEnvio:hoy}" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1"></div>
+      <button onclick="imprimirHojaRuta(document.getElementById('hrRep').value, document.getElementById('hrFecha').value)" class="w-full bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-lg inline-flex items-center justify-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>
+    </div>`);
+  if(window.lucide) lucide.createIcons();
+}
+function imprimirHojaRuta(repId, fecha){
+  const lista = state.pedidos.filter(p=>p.repartidorId===repId && p.fechaEnvio===fecha && p.estado!=='anulado')
+    .sort((a,b)=>(a.ordenRuta??999)-(b.ordenRuta??999) || String(a.numero).localeCompare(String(b.numero)));
+  if(!lista.length){ showToast('Ese repartidor no tiene pedidos para esa fecha.','info'); return; }
+  const nombreRep = repartidorNombre(repId);
+  const fechaFmt = new Date(fecha+'T00:00:00').toLocaleDateString('es-UY',{ weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const totB = lista.reduce((s,p)=>s+Number(p.bultos||0),0), totP = lista.reduce((s,p)=>s+Number(p.pallets||0),0);
+  const filas = lista.map((p,i)=>`<tr><td class="c">${i+1}</td><td>${esc(p.numero)}</td><td><b>${esc(p.cliente)}</b>${p.observaciones?`<div class="obs">${esc(p.observaciones)}</div>`:''}</td><td>${esc(p.direccion||'')}</td><td>${esc(p.telefono||'')}</td>
+    <td class="c">${p.modalidad==='web'?'Web':(Number(p.bultos||0)+(Number(p.pallets||0)?` + ${p.pallets} pal.`:''))}</td><td class="v"></td><td class="r"></td><td class="v"></td></tr>`).join('');
+  const w = window.open('', '_blank');
+  if(!w){ showToast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Hoja de ruta · ${esc(nombreRep)} · ${fecha}</title><style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:14px;font-size:11px}
+    header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}
+    .marca{font-size:20px;font-weight:800} .doc{text-align:right} .t{font-size:18px;font-weight:800}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #111;padding:5px;vertical-align:top;text-align:left} th{background:#eee;font-size:10px}
+    .c{text-align:center} .v{width:70px} .r{width:190px} .obs{font-size:10px;color:#444;margin-top:2px} .cap::first-letter{text-transform:uppercase}
+    .tot{margin-top:8px;font-weight:700} .firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:30px} .firmas div{border-top:1px solid #111;padding-top:4px;font-weight:700}
+    @page{ size: A4 landscape; margin:10mm } @media print{ body{padding:0} .no-print{display:none} }
+  </style></head><body><div class="no-print" style="margin-bottom:10px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
+  <header><div><div class="marca">trondial</div><div>Hoja de ruta</div></div><div class="doc"><div class="t">${esc(nombreRep)}</div><div class="cap">${fechaFmt}</div></div></header>
+  <table><thead><tr><th class="c">#</th><th>Pedido</th><th>Cliente</th><th>Dirección</th><th>Teléfono</th><th class="c">Bultos</th><th>Bultos entregados</th><th class="r">Recibió (nombre y CI)</th><th>Hora</th></tr></thead><tbody>${filas}</tbody></table>
+  <div class="tot">${lista.length} parada${lista.length===1?'':'s'} · ${totB} bultos${totP?` · ${totP} pallets`:''}</div>
+  <div class="firmas"><div>Firma del chofer</div><div>Control de salida</div></div>
+  <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
+  w.document.close();
 }
 
 let excelPreviewRows = [];
@@ -2367,7 +2428,7 @@ function accionesPedido(p){
     <button onclick="openNoEntregadoModal('${p.id}')" class="flex-1 min-w-[130px] inline-flex items-center justify-center gap-1.5 border border-rose-300 text-rose-600 hover:bg-rose-50 text-sm font-semibold px-3 py-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i>No entregado</button>`;
   if(p.estado==='entregado'){
     const c = state.comprobantes.find(c=>c.pedidoId===p.id);
-    return `<div class="w-full text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">Recibió: ${c?c.nombreReceptor:'—'} · CI ${c?c.cedulaReceptor:'—'} · ${c?fmtFecha(c.fechaHora):''}</div>`;
+    return `<div class="w-full text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">Recibió: ${c?c.nombreReceptor:'—'} · CI ${c?c.cedulaReceptor:'—'}${c&&c.bultosEntregados!=null?` · ${c.bultosEntregados} bultos`:''} · ${c?fmtFecha(c.fechaHora):''}</div>`;
   }
   if(p.estado==='noentregado') return `<div class="w-full text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">En revisión por el administrador.</div>`;
   return '';
@@ -2448,8 +2509,47 @@ function procesarEscaneoQR(numero){
   }
 }
 function openComprobanteModal(pedidoId){
+  const p = state.pedidos.find(x=>x.id===pedidoId);
+  if(p && p.modalidad==='mayorista'){ pasoBultos(pedidoId); return; }
+  pasoReceptor(pedidoId, null);
+}
+// Paso 1 (mayoristas): cuántos bultos se entregan
+function pasoBultos(pedidoId){
+  const p = state.pedidos.find(x=>x.id===pedidoId);
+  document.getElementById('modalRoot').innerHTML = modalShell('Confirmar entrega · bultos', `
+    <form onsubmit="event.preventDefault(); validarBultos('${pedidoId}')" class="space-y-3">
+      <p class="text-sm text-slate-600">${esc(p.cliente)} · pedido de <b>${Number(p.bultos||0)} bulto${Number(p.bultos||0)===1?'':'s'}</b>${Number(p.pallets||0)?` y ${p.pallets} pallet${p.pallets>1?'s':''}`:''}.</p>
+      <div><label class="text-xs font-semibold text-slate-500">¿Cuántos bultos estás entregando?</label>
+        <input id="bultosEntregados" type="number" inputmode="numeric" min="0" required value="${Number(p.bultos||0)}" class="w-full border border-slate-200 rounded-lg px-3 py-3 text-2xl font-bold text-center mt-1"></div>
+      ${Number(p.pallets||0)?`<div><label class="text-xs font-semibold text-slate-500">¿Cuántos pallets?</label><input id="palletsEntregados" type="number" inputmode="numeric" min="0" value="${Number(p.pallets||0)}" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-lg font-bold text-center mt-1"></div>`:''}
+      <div id="bultosMsg" class="text-sm min-h-[1.25rem]"></div>
+      <button class="w-full mt-2 bg-brand-700 hover:bg-brand-800 text-white font-semibold py-2.5 rounded-lg">Siguiente</button>
+    </form>
+  `);
+  if(window.lucide) lucide.createIcons();
+  setTimeout(()=>{ const el=document.getElementById('bultosEntregados'); if(el){ el.focus(); el.select(); } }, 50);
+}
+function validarBultos(pedidoId){
+  const p = state.pedidos.find(x=>x.id===pedidoId);
+  const b = parseInt(document.getElementById('bultosEntregados').value, 10);
+  const palEl = document.getElementById('palletsEntregados'), pal = palEl ? parseInt(palEl.value,10) : null;
+  if(!Number.isFinite(b) || b < 0){ document.getElementById('bultosMsg').innerHTML='<span class="text-rose-600">Poné cuántos bultos entregás.</span>'; return; }
+  const dif = b - Number(p.bultos||0);
+  if(dif !== 0 && !document.getElementById('bultosMsg').dataset.ok){
+    document.getElementById('bultosMsg').dataset.ok = '1';
+    document.getElementById('bultosMsg').innerHTML = `<span class="text-amber-700 font-semibold">Ojo: el pedido es de ${Number(p.bultos||0)} y estás entregando ${b} (${dif>0?'+':''}${dif}). Si es correcto, tocá Siguiente otra vez.</span>`;
+    return;
+  }
+  pasoReceptor(pedidoId, { bultos:b, pallets: pal });
+}
+// Paso 2: nombre y cédula de quien recibe
+let entregaBultos = null;
+function pasoReceptor(pedidoId, bultos){
+  entregaBultos = bultos;
+  const p = state.pedidos.find(x=>x.id===pedidoId);
   document.getElementById('modalRoot').innerHTML = modalShell('Confirmar entrega', `
     <form onsubmit="confirmarEntrega(event, '${pedidoId}')" class="space-y-3">
+      ${bultos?`<div class="text-sm bg-slate-50 rounded-lg px-3 py-2">Bultos entregados: <b>${bultos.bultos}</b>${bultos.pallets!=null?` · pallets: <b>${bultos.pallets}</b>`:''} <button type="button" onclick="pasoBultos('${pedidoId}')" class="text-brand-700 font-semibold underline ml-1">cambiar</button></div>`:''}
       <div><label class="text-xs font-semibold text-slate-500">Nombre de quien recibe</label><input required id="nombreReceptor" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1"></div>
       <div>
         <label class="text-xs font-semibold text-slate-500">Cédula de identidad</label>
@@ -2460,6 +2560,7 @@ function openComprobanteModal(pedidoId){
     </form>
   `);
   if(window.lucide) lucide.createIcons();
+  setTimeout(()=>{ const el=document.getElementById('nombreReceptor'); if(el) el.focus(); }, 50);
 }
 function checkCedula(){
   const v = document.getElementById('cedulaReceptor').value;
@@ -2475,6 +2576,8 @@ function confirmarEntrega(e, pedidoId){
   const res = validarCedulaUY(cedula);
   if(!res.valido){ showToast('Cédula inválida: '+res.motivo,'err'); return; }
   const comprobante = { id: uid('cmp'), pedidoId, repartidorId: (session && session.repartidorId) || null, fecha: hoyKey(), nombreReceptor: nombre, cedulaReceptor: cedula, fechaHora: new Date().toISOString() };
+  if(entregaBultos){ comprobante.bultosEntregados = entregaBultos.bultos; if(entregaBultos.pallets!=null) comprobante.palletsEntregados = entregaBultos.pallets; }
+  entregaBultos = null;
   state.comprobantes.push(comprobante);
   const p = state.pedidos.find(x=>x.id===pedidoId); p.estado='entregado';
   fsSet('comprobantes', comprobante);
