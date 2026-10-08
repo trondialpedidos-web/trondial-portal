@@ -537,7 +537,8 @@ function chipsPermisos(per, repId){
 }
 function vUsuarios(){
   const us = datosUsuarios.usuarios.slice().sort((a,b)=>(b.dueno?1:0)-(a.dueno?1:0) || (a.nombre||'').localeCompare(b.nombre||'','es'));
-  const filas = us.map(u=>`
+  const pagU = paginar('usr', us, 30);
+  const filas = pagU.items.map(u=>`
     <div class="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 ${u.activo?'':'opacity-60'}">
       <div class="w-10 h-10 rounded-full ${u.dueno?'bg-slate-900 text-white':'bg-brand-100 text-brand-700'} font-bold flex items-center justify-center shrink-0">${esc((u.nombre||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</div>
       <div class="min-w-0 flex-1">
@@ -571,7 +572,7 @@ function vUsuarios(){
     </div>
     ${invs ? `<h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Invitaciones pendientes</h2><div class="grid gap-3 mb-8">${invs}</div>` : ''}
     <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Usuarios (${us.length})</h2>
-    <div class="grid gap-3">${filas || '<div class="text-sm text-slate-400">Cargando…</div>'}</div>`;
+    <div class="grid gap-3">${filas || '<div class="text-sm text-slate-400">Cargando…</div>'}</div>${pagU.html}`;
 }
 
 function camposPermisos(per, repId){
@@ -785,6 +786,24 @@ function vMigracion(){
       <pre id="migLog" class="mt-4 text-xs bg-slate-900 text-slate-100 rounded-xl p-4 max-h-64 overflow-auto whitespace-pre-wrap ${m.log.length?'':'hidden'}">${esc(m.log.join('\n'))}</pre>
     </div>`;
 }
+
+
+/* ===================== PAGINACIÓN ===================== */
+// Las listas largas se muestran por páginas para que la pantalla no se haga interminable
+const PAG = {}, PAG_FIRMA = {};
+function paginar(clave, lista, porPagina, firma){
+  if(firma!==undefined && PAG_FIRMA[clave]!==firma){ PAG_FIRMA[clave]=firma; PAG[clave]=1; }
+  const total = lista.length, paginas = Math.max(1, Math.ceil(total/porPagina));
+  const p = Math.min(Math.max(1, PAG[clave]||1), paginas); PAG[clave]=p;
+  const items = lista.slice((p-1)*porPagina, p*porPagina);
+  if(paginas<=1) return { items, html:'' };
+  const desde = (p-1)*porPagina+1, hasta = Math.min(p*porPagina, total);
+  let ini = Math.max(1, p-2), fin = Math.min(paginas, ini+4); ini = Math.max(1, fin-4);
+  const b = (n, t, dis, act) => `<button ${dis?'disabled':''} onclick="irPagina('${clave}',${n})" class="min-w-[36px] h-9 px-2 rounded-lg text-sm font-semibold ${act?'bg-brand-600 text-white':'bg-white text-slate-600 hover:bg-brand-50'} disabled:opacity-40">${t}</button>`;
+  const nums = []; for(let i=ini;i<=fin;i++) nums.push(b(i, String(i), false, i===p));
+  return { items, html:`<div class="flex flex-wrap items-center justify-between gap-3 mt-5"><span class="text-sm text-slate-500">Mostrando ${desde}–${hasta} de ${total}</span><div class="flex gap-1">${b(p-1,'‹',p<=1)}${nums.join('')}${b(p+1,'›',p>=paginas)}</div></div>` };
+}
+function irPagina(clave, n){ PAG[clave]=n; render(); window.scrollTo({ top:0, behavior:'smooth' }); }
 
 render();
 </script>
