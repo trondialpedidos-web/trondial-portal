@@ -314,7 +314,8 @@ function vMarcas(){
     .filter(m=> !filtro.sucursal || m.sucursalId===filtro.sucursal)
     .filter(m=> !q || (m.funcionario+' '+(m.nombre||funNombre(m.funcionario))).toLowerCase().includes(q))
     .map(m=>Object.assign({}, m, { d:aFecha(m.ts) })).sort((a,b)=>(b.d||0)-(a.d||0));
-  const filas = lista.map(m=>{
+  const pagM = paginar('marcas', lista, 50, JSON.stringify([filtroMarcas, filtro]));
+  const filas = pagM.items.map(m=>{
     const f = funcionarios.find(x=>x.id===m.funcionario);
     const prev = f ? horarioDe(f, m.fecha) : null;
     const otro = prev && prev.sucursalId && prev.sucursalId!==m.sucursalId;
@@ -343,7 +344,7 @@ function vMarcas(){
     </div>
     <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
       ${marcasRango===null?'<div class="p-8 text-center text-slate-400 text-sm">Cargando…</div>': lista.length?`<table class="w-full text-sm min-w-[760px]"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2 px-3">Fecha y hora</th><th class="py-2 px-3">Funcionario</th><th class="py-2 px-3">Tipo</th><th class="py-2 px-3">Sucursal</th><th class="py-2 px-3">Detalle</th><th></th></tr></thead><tbody>${filas}</tbody></table>`:'<div class="p-8 text-center text-slate-400 text-sm">No hay marcas en ese período.</div>'}
-    </div>`;
+    </div>${pagM?pagM.html:''}`;
 }
 function abrirMarcaManual(num, tipo, fecha){
   const f = num ? funcionarios.find(x=>x.id===num) : null;
@@ -394,7 +395,8 @@ function vReporte(){
   if(marcasRango===null) cuerpo = '<div class="p-8 text-center text-slate-400 text-sm">Cargando marcas…</div>';
   else {
     reporte = calcularReporte();
-    const filas = reporte.filas.map(r=>`<tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="verDetalle('${esc(r.f.id)}')">
+    pagR = paginar('rep', reporte.filas, 40, JSON.stringify(filtroRep));
+    const filas = pagR.items.map(r=>`<tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="verDetalle('${esc(r.f.id)}')">
       <td class="py-2 px-3"><div class="font-medium">${esc(r.f.nombre)}</div><div class="text-[11px] text-slate-400">N° ${esc(r.f.id)} · ${esc(sucNombre(r.f.sucursalId))}</div></td>
       <td class="py-2 px-3 text-right num">${r.dias}</td><td class="py-2 px-3 text-right num font-bold">${durTxt(r.minutos)}</td>
       <td class="py-2 px-3 text-right num ${r.tardes?'text-amber-700 font-semibold':''}">${r.tardes}${r.tardes?` <span class="text-xs">(${r.minTarde} min)</span>`:''}</td>
@@ -415,8 +417,9 @@ function vReporte(){
       <select class="field !w-auto" onchange="filtroRep.sucursal=this.value; render()"><option value="">Todas las sucursales</option>${sucursales.map(s=>`<option value="${s.id}" ${filtroRep.sucursal===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select>
       <div class="flex gap-1">${[['Este mes',()=>0],['Mes pasado',()=>1],['1ª quincena',()=>'q1'],['2ª quincena',()=>'q2']].map(([t],i)=>`<button onclick="periodoRapido(${i})" class="text-xs font-semibold border border-slate-200 bg-white rounded-lg px-2.5 py-2 hover:border-brand-400">${t}</button>`).join('')}</div>
     </div>
-    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">${cuerpo}</div>`;
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">${cuerpo}</div>${marcasRango!==null && pagR ? pagR.html : ''}`;
 }
+let pagR = null;
 function periodoRapido(i){
   const h = new Date(), y=h.getFullYear(), m=h.getMonth();
   const k = (yy,mm,dd)=>hoyKey(new Date(yy,mm,dd));
@@ -479,6 +482,7 @@ function resumenHorario(f){
   const locales = [...new Set(dias.map(i=>h[i].sucursalId))];
   return dias.map(i=>DIAS_C[i]).join(' ') + (locales.length>1 ? ` · <span class="text-brand-700 font-semibold">${locales.length} locales</span>` : ` · ${esc(sucNombre(locales[0]))}`);
 }
+let pagF = { items:[], html:'' };
 function vFuncionarios(){
   const q = filtro.q.trim().toLowerCase();
   const lista = funcionarios.filter(f=> !filtro.sucursal || f.sucursalId===filtro.sucursal).filter(f=> !q || (f.id+' '+f.nombre+' '+(f.ci||'')).toLowerCase().includes(q));
@@ -492,7 +496,7 @@ function vFuncionarios(){
       <select class="field !w-auto" onchange="filtro.sucursal=this.value; render()"><option value="">Todas las sucursales</option>${sucursales.map(s=>`<option value="${s.id}" ${filtro.sucursal===s.id?'selected':''}>${esc(s.nombre)}</option>`).join('')}</select>
     </div>
     <div class="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
-      ${lista.map(f=>`<div class="px-4 py-3 flex items-center gap-3 hover:bg-slate-50 ${f.activo===false?'opacity-60':''}">
+      ${(pagF=paginar('fun', lista, 30, JSON.stringify(filtro))).items.map(f=>`<div class="px-4 py-3 flex items-center gap-3 hover:bg-slate-50 ${f.activo===false?'opacity-60':''}">
         <div class="w-12 text-xs font-bold text-slate-500 num">${esc(f.id)}</div>
         <button onclick="abrirFuncionario('${esc(f.id)}')" class="min-w-0 flex-1 text-left"><div class="font-semibold text-slate-900">${esc(f.nombre)}${f.activo===false?' <span class="text-xs font-semibold text-slate-400">(inactivo)</span>':''}</div>
           <div class="text-xs text-slate-500">${esc(sucNombre(f.sucursalId))} · ${resumenHorario(f)}</div></button>
@@ -500,7 +504,7 @@ function vFuncionarios(){
         <button onclick="abrirFuncionario('${esc(f.id)}')" class="p-2 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="borrarFuncionario('${esc(f.id)}')" class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="Borrar"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
       </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-sm">Sin resultados.</div>'}
-    </div>`;
+    </div>${pagF.html}`;
 }
 let edFun = null;
 function opcionesSucursal(sel){ return `<option value="">—</option>` + sucursales.map(s=>`<option value="${s.id}" ${s.id===sel?'selected':''}>${esc(s.nombre)}</option>`).join(''); }
@@ -856,6 +860,24 @@ function descargarPines(){
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(importacion.pines.map(p=>({ Sucursal:p.sucursal, 'N° funcionario':p.numero, Nombre:p.nombre, PIN:p.pin }))), 'PINs');
   XLSX.writeFile(wb, 'pins_funcionarios.xlsx');
 }
+
+
+/* ===================== PAGINACIÓN ===================== */
+// Las listas largas se muestran por páginas para que la pantalla no se haga interminable
+const PAG = {}, PAG_FIRMA = {};
+function paginar(clave, lista, porPagina, firma){
+  if(firma!==undefined && PAG_FIRMA[clave]!==firma){ PAG_FIRMA[clave]=firma; PAG[clave]=1; }
+  const total = lista.length, paginas = Math.max(1, Math.ceil(total/porPagina));
+  const p = Math.min(Math.max(1, PAG[clave]||1), paginas); PAG[clave]=p;
+  const items = lista.slice((p-1)*porPagina, p*porPagina);
+  if(paginas<=1) return { items, html:'' };
+  const desde = (p-1)*porPagina+1, hasta = Math.min(p*porPagina, total);
+  let ini = Math.max(1, p-2), fin = Math.min(paginas, ini+4); ini = Math.max(1, fin-4);
+  const b = (n, t, dis, act) => `<button ${dis?'disabled':''} onclick="irPagina('${clave}',${n})" class="min-w-[36px] h-9 px-2 rounded-lg text-sm font-semibold ${act?'bg-brand-600 text-white':'bg-white text-slate-600 hover:bg-brand-50'} disabled:opacity-40">${t}</button>`;
+  const nums = []; for(let i=ini;i<=fin;i++) nums.push(b(i, String(i), false, i===p));
+  return { items, html:`<div class="flex flex-wrap items-center justify-between gap-3 mt-5"><span class="text-sm text-slate-500">Mostrando ${desde}–${hasta} de ${total}</span><div class="flex gap-1">${b(p-1,'‹',p<=1)}${nums.join('')}${b(p+1,'›',p>=paginas)}</div></div>` };
+}
+function irPagina(clave, n){ PAG[clave]=n; render(); window.scrollTo({ top:0, behavior:'smooth' }); }
 
 render();
 </script>
