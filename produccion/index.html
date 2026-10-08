@@ -82,10 +82,21 @@ const ETAPAS = [
   { id:'cancelada',  nombre:'Canceladas',      corto:'Cancelada',      color:'bg-slate-300',  chip:'bg-slate-100 text-slate-500' },
 ];
 const etapa = id => ETAPAS.find(e=>e.id===id) || ETAPAS[0];
+// Para quién es cada pedido
+const DESTINOS = [
+  { id:'cliente',     nombre:'Cliente',     chip:'bg-brand-100 text-brand-800' },
+  { id:'tercerizado', nombre:'Tercerizado', chip:'bg-amber-100 text-amber-800' },
+  { id:'stock',       nombre:'Stock propio',chip:'bg-slate-100 text-slate-600' },
+];
+const destino = o => DESTINOS.find(d=>d.id===(o.destinoTipo||'stock')) || DESTINOS[2];
+function textoDestino(o){ const d = destino(o); return d.id==='stock' ? 'Stock propio' : `${o.destinoNombre||'—'} (${d.nombre.toLowerCase()})`; }
+function nombreDestino(o){ return destino(o).id==='stock' ? 'Stock propio' : (o.destinoNombre||''); }
+function chipDestino(o){ const d = destino(o); return `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${d.chip}">${esc(d.id==='stock'?d.nombre:(o.destinoNombre||d.nombre))}</span>`; }
+let filtroPed = { q:'', tipo:'' };
 
 /* ===================== ESTADO ===================== */
 let perfil=null, rol='', sinAcceso=false;
-let productosF=[], ordenes=[], despachos=[];
+let productosF=[], ordenes=[], despachos=[], manifiestos=[];
 let tab = (location.hash||'#ordenes').slice(1) || 'ordenes';
 let verCerradas = false, unsubs=[];
 
@@ -145,6 +156,11 @@ function escuchar(){
   on(db.collection('ordenes').where('estado','in',['nueva','cambio','aceptada','produccion','lista','despachada']), s=>{ abiertas = s.docs.map(datosDoc); unir(); });
   on(db.collection('ordenes').where('actualizadoDia','>=',hoyKeyMenos(45)), s=>{ recientes = s.docs.map(datosDoc); unir(); });
   on(db.collection('despachos').where('dia','>=',hoyKeyMenos(45)), s=>{ despachos = s.docs.map(datosDoc); render(); });
+  // Manifiestos: los pendientes siempre y lo movido en los últimos 90 días
+  let mPend = [], mRec = [];
+  const unirM = ()=>{ const m={}; mRec.concat(mPend).forEach(x=>m[x.id]=x); manifiestos = Object.values(m); render(); };
+  on(db.collection('manifiestos').where('estado','==','enviado'), s=>{ mPend = s.docs.map(datosDoc); unirM(); });
+  on(db.collection('manifiestos').where('dia','>=',hoyKeyMenos(90)), s=>{ mRec = s.docs.map(datosDoc); unirM(); });
 }
 function hoyKeyMenos(n){ const d=new Date(); d.setDate(d.getDate()-n); return hoyKey(d); }
 function salir(){ detener(); firebase.auth().signOut().finally(()=>location.href='../'); }
@@ -156,8 +172,8 @@ function render(){
   const r=$('root');
   if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
   if(!rol){ r.innerHTML='<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
-  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos, opus:vOpus };
-  const permitidas = rol==='deposito' ? ['recepcion','despachos'] : rol==='fabrica' ? ['ordenes','despachos'] : ['ordenes','despachos','recepcion','opus','productos'];
+  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos, opus:vOpus, manifiestos:vManifiestos };
+  const permitidas = rol==='deposito' ? ['recepcion','despachos','manifiestos'] : rol==='fabrica' ? ['ordenes','despachos','manifiestos'] : ['ordenes','despachos','recepcion','opus','manifiestos','productos'];
   if(!permitidas.includes(tab)) tab = permitidas[0];
   r.innerHTML = vTabs() + (vistas[tab]||vOrdenes)();
   iconos();
@@ -185,6 +201,8 @@ function vTabs(){
   if(recibe()) tabs.push(t('recepcion','Recepción en depósito','package-check',enCamino));
   tabs.push(t('despachos','Remitos','file-text'));
   if(esOficina()) tabs.push(t('opus','Ingreso a Opus','database',paraOpus,'bg-amber-400 text-amber-950'));
+  const mPorRecibir = manifiestos.filter(m=>m.estado==='enviado' && puedeRecibirManifiesto(m)).length;
+  tabs.push(t('manifiestos','Manifiestos','arrow-left-right',mPorRecibir,'bg-violet-500 text-white'));
   if(esOficina()) tabs.push(t('productos','Productos de fábrica','boxes'));
   return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${tabs.join('')}</nav>`;
 }
@@ -212,8 +230,12 @@ function textoFecha(o){
 
 /* ---------- ÓRDENES: tablero por etapa ---------- */
 function vOrdenes(){
-  const abiertas = ordenes.filter(o=>!['recibida','cancelada'].includes(o.estado));
-  const cerradas = ordenes.filter(o=>['recibida','cancelada'].includes(o.estado)).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const q = filtroPed.q.trim().toLowerCase();
+  const pasa = o => (!filtroPed.tipo || (o.destinoTipo||'stock')===filtroPed.tipo)
+    && (!q || [String(o.numero), o.destinoNombre||'', o.notas||'', o.notaPie||'', ...(o.items||[]).map(x=>x.nombre+' '+(x.para||''))].join(' ').toLowerCase().includes(q));
+  const abiertas = ordenes.filter(o=>!['recibida','cancelada'].includes(o.estado)).filter(pasa);
+  const cerradas = ordenes.filter(o=>['recibida','cancelada'].includes(o.estado)).filter(pasa).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const pagCerr = paginar('cerradas', cerradas, 20, JSON.stringify(filtroPed));
   const columnas = ETAPAS.filter(e=>!['recibida','cancelada'].includes(e.id)).filter(e=> e.id!=='cambio' || abiertas.some(o=>o.estado==='cambio'));
   const tarjeta = o => {
     const t = totales(o), e = etapa(o.estado);
@@ -222,7 +244,7 @@ function vOrdenes(){
     return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left bg-white rounded-2xl p-4 hover:ring-2 hover:ring-brand-300 transition">
       <div class="flex items-start justify-between gap-2"><span class="font-display font-extrabold text-lg">N° ${o.numero||'—'}</span>
         ${o.prioridad==='urgente'?'<span class="text-[11px] font-bold bg-rose-500 text-white px-2 py-0.5 rounded-full">Urgente</span>':''}</div>
-      <div class="text-xs text-slate-500 mt-0.5">${textoFecha(o)}</div>
+      <div class="mt-1.5 flex flex-wrap items-center gap-1.5">${chipDestino(o)}<span class="text-xs text-slate-500">${textoFecha(o)}</span></div>
       <div class="text-sm text-slate-700 mt-2 line-clamp-2">${(o.items||[]).slice(0,3).map(x=>`${cant(x.cantidad)} ${esc(x.unidad)} ${esc(x.nombre)}`).join(' · ')}${(o.items||[]).length>3?` y ${o.items.length-3} más`:''}</div>
       ${o.estado==='cambio'?`<div class="text-xs text-amber-800 bg-amber-50 rounded-lg px-2 py-1.5 mt-2">${esc(o.pedidoCambio||'')}</div>`:''}
       ${barra}
@@ -239,13 +261,17 @@ function vOrdenes(){
       <div class="flex flex-wrap gap-2"><button onclick="abrirExportarPedidos()" class="border border-slate-300 bg-white hover:border-brand-400 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar a Excel</button>
       ${esOficina()?`<button onclick="abrirNuevaOrden()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nuevo pedido</button>`:''}</div>
     </div>
+    <div class="flex flex-wrap gap-2 mb-4">
+      <input id="qPed" type="text" class="field flex-1 min-w-[220px]" placeholder="Buscar por cliente, número o producto" value="${esc(filtroPed.q)}" oninput="filtroPed.q=this.value; render(); const el=$('qPed'); el.focus(); el.setSelectionRange(el.value.length, el.value.length)">
+      <select class="field !w-auto" onchange="filtroPed.tipo=this.value; render()"><option value="">Todos los destinos</option>${DESTINOS.map(d=>`<option value="${d.id}" ${filtroPed.tipo===d.id?'selected':''}>${d.nombre}</option>`).join('')}</select>
+    </div>
     ${abiertas.length ? `<div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">${columnas.map(col).join('')}</div>`
       : `<div class="bg-white rounded-[28px] p-10 text-center text-slate-500">${esOficina()?'No hay órdenes abiertas. Creá la primera con "Nueva orden".':'No hay órdenes para producir.'}${!productosF.length&&esOficina()?'<div class="mt-2 text-sm">Antes, cargá los productos que hace la fábrica en "Productos de fábrica".</div>':''}</div>`}
     ${cerradas.length?`<details class="mt-6" ${verCerradas?'open':''} ontoggle="verCerradas=this.open"><summary class="font-semibold text-sm text-slate-500 cursor-pointer">Cerradas en los últimos 45 días (${cerradas.length})</summary>
-      <div class="bg-white rounded-2xl mt-3 divide-y divide-slate-100">${cerradas.map(o=>{ const t=totales(o), dif=o.estado==='recibida' && t.recibido<t.pedido;
+      <div class="bg-white rounded-2xl mt-3 divide-y divide-slate-100">${pagCerr.items.map(o=>{ const t=totales(o), dif=o.estado==='recibida' && t.recibido<t.pedido;
         return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50"><span class="font-display font-bold w-16">N° ${o.numero}</span>
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${etapa(o.estado).chip}">${etapa(o.estado).corto}</span>
-          <span class="flex-1 text-sm text-slate-600 truncate">${(o.items||[]).map(x=>esc(x.nombre)).join(', ')}</span>${dif?'<span class="text-xs font-semibold text-rose-600">Llegó incompleta</span>':''}</button>`; }).join('')}</div></details>`:''}`;
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${etapa(o.estado).chip}">${etapa(o.estado).corto}</span>${chipDestino(o)}
+          <span class="flex-1 text-sm text-slate-600 truncate">${(o.items||[]).map(x=>esc(x.nombre)).join(', ')}</span>${dif?'<span class="text-xs font-semibold text-rose-600">Llegó incompleta</span>':''}</button>`; }).join('')}</div>${pagCerr.html}</details>`:''}`;
 }
 
 /* ---------- Nueva orden (oficina) ---------- */
@@ -254,7 +280,14 @@ function abrirNuevaOrden(id){
   const o = id ? ordenes.find(x=>x.id===id) : null;
   if(!productosF.length){ modal('Primero, los productos', `<p class="text-sm text-slate-600">Para hacer una orden, cargá los productos que fabrica la fábrica en <b>Productos de fábrica</b>. Podés traerlos del catálogo de Ventas o crearlos a mano.</p><button onclick="cerrarModal(); irTab('productos')" class="mt-4 w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Ir a Productos de fábrica</button>`); return; }
   edOrden = { id: o?o.id:null, items: o ? JSON.parse(JSON.stringify(o.items)) : [] };
-  modal(o?`Editar orden N° ${o.numero}`:'Nueva orden', `<form onsubmit="guardarOrden(event)" class="space-y-4" novalidate>
+  const nombresPrevios = [...new Set(ordenes.map(x=>x.destinoNombre).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+  const tipoIni = o ? (o.destinoTipo||'stock') : 'cliente';
+  modal(o?`Editar pedido N° ${o.numero}`:'Nuevo pedido a fábrica', `<form onsubmit="guardarOrden(event)" class="space-y-4" novalidate>
+    <div><span class="lbl">¿Para quién es?</span>
+      <div class="grid grid-cols-3 gap-1.5">${DESTINOS.map(d=>`<label class="border rounded-lg px-3 py-2 text-sm font-semibold text-center cursor-pointer has-[:checked]:bg-brand-600 has-[:checked]:text-white has-[:checked]:border-brand-600"><input type="radio" name="oDest" value="${d.id}" class="hidden" ${tipoIni===d.id?'checked':''} onchange="$('oDestNomWrap').classList.toggle('hidden', this.value==='stock')">${d.nombre}</label>`).join('')}</div>
+      <div id="oDestNomWrap" class="mt-2 ${tipoIni==='stock'?'hidden':''}"><input class="field" id="oDestNom" list="oDestLista" value="${esc(o?o.destinoNombre||'':'')}" placeholder="Nombre del cliente o de la empresa tercerizada">
+        <datalist id="oDestLista">${nombresPrevios.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    </div>
     <div class="grid grid-cols-2 gap-3">
       <div><label class="lbl" for="oFecha">La necesitamos para el</label><input class="field" type="date" id="oFecha" value="${o?o.fechaRequerida:hoyKeyMenos(-3)}"></div>
       <div><span class="lbl">Prioridad</span><div class="grid grid-cols-2 gap-1.5">
@@ -263,20 +296,23 @@ function abrirNuevaOrden(id){
     <div><span class="lbl">Productos</span>
       <div class="relative"><input class="field" id="oBuscar" placeholder="Buscar producto de fábrica para agregarlo" oninput="buscarProdOrden(this.value)" autocomplete="off">
         <div id="oRes" class="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 hidden max-h-64 overflow-y-auto"></div></div>
-      <div id="oItems" class="mt-3 space-y-2"></div></div>
-    <div><label class="lbl" for="oNotas">Notas para la fábrica <span class="font-normal text-slate-400">(opcional)</span></label><textarea class="field" id="oNotas" rows="2" placeholder="Ej.: es para el pedido grande de un distribuidor">${esc(o?o.notas:'')}</textarea></div>
+      <div id="oItems" class="mt-3 space-y-2"></div>
+      <div class="text-xs text-slate-400 mt-1.5">Cada pedido es para un solo cliente. Si hay pedidos de varios clientes, hacé un pedido para cada uno.</div></div>
+    <div><label class="lbl" for="oNotas">Notas para la fábrica <span class="font-normal text-slate-400">(van arriba, opcional)</span></label><textarea class="field" id="oNotas" rows="2" placeholder="Ej.: priorizar el alfajor, el cliente lo retira el viernes">${esc(o?o.notas:'')}</textarea></div>
+    <div><label class="lbl" for="oPie">Notas al pie <span class="font-normal text-slate-400">(aclaraciones, salen al final del pedido impreso)</span></label><textarea class="field" id="oPie" rows="2" placeholder="Ej.: etiquetar con la marca del cliente; packaging lo entrega el tercerizado">${esc(o?o.notaPie||'':'')}</textarea></div>
     <div id="oErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
     <button id="oBtn" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3 rounded-xl">${o?'Guardar cambios':'Enviar a fábrica'}</button></form>`, 'sm:max-w-2xl');
   pintarItemsOrden();
 }
-function leerItemsOrden(){ edOrden.items.forEach((it,i)=>{ const c=$('oc'+i), u=$('ou'+i); if(c) it.cantidad = Number(String(c.value).replace(',','.'))||0; if(u) it.unidad = u.value; }); }
+function leerItemsOrden(){ edOrden.items.forEach((it,i)=>{ const c=$('oc'+i), u=$('ou'+i), pa=$('op'+i); if(c) it.cantidad = Number(String(c.value).replace(',','.'))||0; if(u) it.unidad = u.value; if(pa) it.para = pa.value.trim(); }); }
 function pintarItemsOrden(){
   const cont=$('oItems'); if(!cont) return;
-  cont.innerHTML = edOrden.items.length ? edOrden.items.map((it,i)=>`<div class="flex items-center gap-2 bg-niebla rounded-xl p-2">
-    <div class="flex-1 min-w-0 text-sm font-medium truncate">${esc(it.nombre)}${it.codigo?` <span class="text-xs text-slate-400">Cód. ${esc(it.codigo)}</span>`:''}</div>
-    <input id="oc${i}" class="field num !w-24 text-right" inputmode="decimal" value="${it.cantidad||''}" placeholder="Cant.">
-    <select id="ou${i}" class="field !w-28">${UNIDADES.map(u=>`<option ${u===it.unidad?'selected':''}>${u}</option>`).join('')}</select>
-    <button type="button" onclick="leerItemsOrden(); edOrden.items.splice(${i},1); pintarItemsOrden()" class="p-2 text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button></div>`).join('')
+  cont.innerHTML = edOrden.items.length ? edOrden.items.map((it,i)=>`<div class="bg-niebla rounded-xl p-2">
+    <div class="flex items-center gap-2">
+      <div class="flex-1 min-w-0 text-sm font-medium truncate">${esc(it.nombre)}${it.codigo?` <span class="text-xs text-slate-400">Cód. ${esc(it.codigo)}</span>`:''}</div>
+      <input id="oc${i}" class="field num !w-24 text-right" inputmode="decimal" value="${it.cantidad||''}" placeholder="Cant.">
+      <select id="ou${i}" class="field !w-28">${UNIDADES.map(u=>`<option ${u===it.unidad?'selected':''}>${u}</option>`).join('')}</select>
+      <button type="button" onclick="leerItemsOrden(); edOrden.items.splice(${i},1); pintarItemsOrden()" class="p-2 text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button></div></div>`).join('')
     : '<div class="text-sm text-slate-400">Agregá al menos un producto.</div>';
   iconos();
 }
@@ -296,27 +332,29 @@ function agregarProdOrden(id){
 async function guardarOrden(e){
   e.preventDefault(); leerItemsOrden();
   const err=t=>{ $('oErr').textContent=t; };
-  const fecha=$('oFecha').value, prioridad=(document.querySelector('input[name=oPrio]:checked')||{}).value||'normal', notas=$('oNotas').value.trim();
+  const fecha=$('oFecha').value, prioridad=(document.querySelector('input[name=oPrio]:checked')||{}).value||'normal', notas=$('oNotas').value.trim(), notaPie=$('oPie').value.trim();
+  const destinoTipo=(document.querySelector('input[name=oDest]:checked')||{}).value||'stock', destinoNombre = destinoTipo==='stock' ? '' : $('oDestNom').value.trim();
+  if(destinoTipo!=='stock' && !destinoNombre) return err(destinoTipo==='cliente' ? 'Poné el nombre del cliente.' : 'Poné el nombre de la empresa tercerizada.');
   if(!fecha) return err('Poné para cuándo la necesitan.');
   if(!edOrden.items.length) return err('Agregá al menos un producto.');
   const malo = edOrden.items.find(x=>!(x.cantidad>0)); if(malo) return err(`Poné la cantidad de "${malo.nombre}".`);
   const btn=$('oBtn'); btn.disabled=true; btn.textContent='Enviando…';
   try{
     if(edOrden.id){
-      await db.collection('ordenes').doc(edOrden.id).update({ fechaRequerida:fecha, prioridad, notas, items:edOrden.items, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+      await db.collection('ordenes').doc(edOrden.id).update({ fechaRequerida:fecha, prioridad, notas, notaPie, destinoTipo, destinoNombre, items:edOrden.items, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
         historial: FV.arrayUnion({ estado:'editada', por:yo(), cuando:new Date().toISOString(), nota:'Se modificó la orden' }) });
-      cerrarModal(); toast('Orden actualizada.');
+      cerrarModal(); toast('Pedido actualizado.');
     } else {
       const ref = db.collection('ordenes').doc();
       const numero = await db.runTransaction(async tx=>{
         const cRef = db.collection('contadores').doc('ordenes'); const c = await tx.get(cRef);
         const n = (c.exists ? c.data().ultimo : 0) + 1;
         tx.set(cRef, { ultimo:n });
-        tx.set(ref, { numero:n, fechaRequerida:fecha, prioridad, notas, items:edOrden.items, estado:'nueva', creadoPor:yo(), creado:FV.serverTimestamp(), actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
+        tx.set(ref, { numero:n, fechaRequerida:fecha, prioridad, notas, notaPie, destinoTipo, destinoNombre, items:edOrden.items, estado:'nueva', creadoPor:yo(), creado:FV.serverTimestamp(), actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
           historial:[{ estado:'nueva', por:yo(), cuando:new Date().toISOString(), nota:'' }] });
         return n;
       });
-      cerrarModal(); toast(`Orden N° ${numero} enviada a fábrica.`);
+      cerrarModal(); toast(`Pedido N° ${numero} enviado a fábrica.`);
     }
   }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Enviar a fábrica'; }
 }
@@ -341,12 +379,13 @@ function abrirOrden(id){
   acciones.push(`<button onclick="exportarPedidos(['${id}'])" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel</button>`);
   acciones.push(`<button onclick="imprimirPedido('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>`);
   const filas = (o.items||[]).map(x=>{ const falta = o.estado==='recibida' && Number(x.recibido||0) < Number(x.cantidad||0);
-    return `<tr class="border-t border-slate-100"><td class="py-2 pr-2"><div class="font-medium">${esc(x.nombre)}</div>${x.codigo?`<div class="text-[11px] text-slate-400">Cód. ${esc(x.codigo)}</div>`:''}</td>
+    return `<tr class="border-t border-slate-100"><td class="py-2 pr-2"><div class="font-medium">${esc(x.nombre)}</div>${x.codigo?`<div class="text-[11px] text-slate-400">Cód. ${esc(x.codigo)}</div>`:''}${x.para?`<div class="text-[11px] font-semibold text-brand-700">Para: ${esc(x.para)}</div>`:''}</td>
     <td class="py-2 px-2 text-right num font-semibold">${cant(x.cantidad)} <span class="text-xs text-slate-400 font-normal">${esc(x.unidad)}</span></td>
     <td class="py-2 px-2 text-right num">${cant(x.producido)}</td><td class="py-2 px-2 text-right num">${cant(x.despachado)}</td>
     <td class="py-2 pl-2 text-right num ${falta?'text-rose-600 font-bold':''}">${cant(x.recibido)}</td></tr>`; }).join('');
   const hist = (o.historial||[]).slice().reverse().map(h=>`<li class="flex gap-3"><span class="w-2 h-2 rounded-full mt-1.5 shrink-0 ${etapa(h.estado).color}"></span><div><span class="font-semibold">${esc(etapa(h.estado).corto||h.estado)}</span>${h.estado==='editada'?'Editada':''} <span class="text-slate-400">· ${esc(h.por||'')} · ${cuando(h.cuando)}</span>${h.nota?`<div class="text-slate-600">${esc(h.nota)}</div>`:''}</div></li>`).join('');
   modal(`Pedido N° ${o.numero}`, `
+    <div class="text-sm mb-2"><span class="text-slate-500">Para:</span> <b>${esc(textoDestino(o))}</b></div>
     <div class="flex flex-wrap items-center gap-2 mb-4"><span class="text-xs font-bold px-2.5 py-1 rounded-full ${e.chip}">${e.corto}</span>${o.prioridad==='urgente'?'<span class="text-xs font-bold bg-rose-500 text-white px-2.5 py-1 rounded-full">Urgente</span>':''}
       <span class="text-sm text-slate-500">${textoFecha(o)}${o.fechaEstimada?` · fábrica estima el ${fechaCorta(o.fechaEstimada)}`:''}</span></div>
     ${o.notas?`<div class="text-sm bg-niebla rounded-xl p-3 mb-4">${esc(o.notas)}</div>`:''}
@@ -356,6 +395,7 @@ function abrirOrden(id){
       : [['Productos',(o.items||[]).length],['Producido',avance(o,'producido')+'%'],['Despachado',avance(o,'despachado')+'%'],['Recibido',avance(o,'recibido')+'%']]
     ).map(([n,v],i)=>`<div class="rounded-xl p-2 ${i===0?'bg-niebla':'bg-brand-50'}"><div class="font-display font-extrabold text-xl num">${v}</div><div class="text-[11px] text-slate-500">${n}</div></div>`).join('')}</div>
     <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-slate-400 uppercase"><th class="pb-1">Producto</th><th class="pb-1 px-2 text-right">Pedido</th><th class="pb-1 px-2 text-right">Producido</th><th class="pb-1 px-2 text-right">Despachado</th><th class="pb-1 pl-2 text-right">Recibido</th></tr></thead><tbody>${filas}</tbody></table></div>
+    ${o.notaPie?`<div class="text-sm border-t border-dashed border-slate-300 mt-4 pt-3"><span class="text-slate-500 font-semibold">Notas al pie:</span> ${esc(o.notaPie)}</div>`:''}
     ${acciones.length?`<div class="flex flex-wrap gap-2 mt-5">${acciones.join('')}</div>`:''}
     <div class="mt-6"><div class="font-semibold text-sm mb-2">Historial</div><ul class="space-y-2 text-sm">${hist}</ul></div>`, 'sm:max-w-2xl');
 }
@@ -384,27 +424,73 @@ function cancelarOrden(id){
     <div><label class="lbl" for="xNota">Motivo</label><input class="field" id="xNota"></div>
     <button class="w-full bg-rose-600 text-white font-semibold py-2.5 rounded-xl">Cancelar orden</button></form>`);
 }
+// Lo producido se carga por tandas, cada una con su cantidad, lote y fecha de elaboración (trazabilidad)
+let edAvance = null;
+function tandasDe(x){ return (x.tandas && x.tandas.length) ? x.tandas : (Number(x.producido||0) ? [{ cantidad:Number(x.producido), lote:'', fecha:'' }] : []); }
 function registrarAvance(id){
   const o = ordenes.find(x=>x.id===id);
-  modal(`Producido · N° ${o.numero}`, `<form onsubmit="guardarAvance(event,'${id}')" class="space-y-3">
-    <p class="text-sm text-slate-600">Cargá cuánto hay producido en total de cada producto (no solo lo de hoy).</p>
-    ${o.items.map((x,i)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3"><div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(x.nombre)}</div><div class="text-xs text-slate-500">Pedido: ${cant(x.cantidad)} ${esc(x.unidad)}</div></div>
-      <input id="av${i}" class="field num !w-28 text-right" inputmode="decimal" value="${x.producido||''}" placeholder="0"><span class="text-xs text-slate-500 w-14">${esc(x.unidad)}</span>
-      <button type="button" onclick="$('av${i}').value='${x.cantidad}'" class="text-xs font-semibold text-brand-700">Todo</button></div>`).join('')}
+  edAvance = { id, items: o.items.map(x=>({ ...x, tandas: JSON.parse(JSON.stringify(tandasDe(x))) })) };
+  modal(`Producido · Pedido N° ${o.numero}`, `<div class="space-y-4">
+    <p class="text-sm text-slate-600">Cargá cada tanda producida con su <b>lote</b> y <b>fecha de elaboración</b>. Así queda la trazabilidad de cada producto.</p>
+    <div id="avItems" class="space-y-3"></div>
     <label class="flex items-center gap-2 text-sm font-semibold pt-1"><input type="checkbox" id="avLista"> Ya está todo: marcar como lista en expedición</label>
-    <button class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Guardar</button></form>`, 'sm:max-w-xl');
+    <div id="avErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button onclick="guardarAvance('${id}')" class="w-full bg-brand-600 text-white font-semibold py-2.5 rounded-xl">Guardar</button></div>`, 'sm:max-w-2xl');
+  pintarAvance();
 }
-async function guardarAvance(e, id){
-  e.preventDefault();
-  const o = ordenes.find(x=>x.id===id); const items = JSON.parse(JSON.stringify(o.items));
-  items.forEach((x,i)=>{ const v = Number(String($('av'+i).value).replace(',','.')); x.producido = isNaN(v)?0:Math.max(0,v); });
+function pintarAvance(){
+  $('avItems').innerHTML = edAvance.items.map((x,i)=>{ const tot = x.tandas.reduce((s,t)=>s+Number(t.cantidad||0),0);
+    return `<div class="bg-niebla rounded-2xl p-3">
+      <div class="flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold truncate">${esc(x.nombre)}</div><div class="text-xs text-slate-500">Pedido: ${cant(x.cantidad)} ${esc(x.unidad)} · producido: <b class="${tot>=x.cantidad?'text-emerald-700':''}">${cant(tot)}</b>${Number(x.despachado||0)?` · despachado: ${cant(x.despachado)}`:''}</div></div></div>
+      ${x.tandas.length?`<div class="mt-2 space-y-1">${x.tandas.map((t,k)=>`<div class="flex items-center gap-2 text-sm bg-white rounded-lg px-3 py-1.5"><span class="num font-semibold w-20">${cant(t.cantidad)} ${esc(x.unidad)}</span><span class="flex-1">Lote <b>${esc(t.lote||'sin lote')}</b>${t.fecha?` · elab. ${fechaCorta(t.fecha)}`:''}</span>
+        <button type="button" onclick="quitarTanda(${i},${k})" class="text-slate-400 hover:text-rose-600" title="Quitar"><i data-lucide="x" class="w-4 h-4"></i></button></div>`).join('')}</div>`:''}
+      <div class="grid grid-cols-[1fr_1.2fr_1.2fr_auto] gap-2 mt-2 items-end">
+        <div><label class="lbl" for="tc${i}">Cantidad</label><input id="tc${i}" class="field num !py-1.5" inputmode="decimal" placeholder="${Math.max(0, x.cantidad - tot) || ''}"></div>
+        <div><label class="lbl" for="tl${i}">Lote</label><input id="tl${i}" class="field !py-1.5 uppercase" placeholder="Ej.: L2610-03"></div>
+        <div><label class="lbl" for="tf${i}">Fecha elab.</label><input id="tf${i}" type="date" class="field !py-1.5" value="${hoyKey()}"></div>
+        <button type="button" onclick="agregarTanda(${i})" class="bg-white border border-slate-300 hover:border-brand-400 rounded-lg px-3 py-2 text-sm font-semibold">Agregar</button>
+      </div></div>`; }).join('');
+  iconos();
+}
+function agregarTanda(i){
+  const x = edAvance.items[i]; const c = Number(String($('tc'+i).value).replace(',','.'));
+  if(!(c>0)){ $('avErr').textContent = `Poné la cantidad de la tanda de "${x.nombre}".`; return; }
+  const lote = $('tl'+i).value.trim().toUpperCase();
+  if(!lote){ $('avErr').textContent = `Poné el lote de la tanda de "${x.nombre}".`; return; }
+  $('avErr').textContent='';
+  x.tandas.push({ cantidad:c, lote, fecha:$('tf'+i).value||'' });
+  pintarAvance();
+}
+function quitarTanda(i,k){
+  const x = edAvance.items[i]; const t = x.tandas[k];
+  const tot = x.tandas.reduce((s,y)=>s+Number(y.cantidad||0),0) - Number(t.cantidad||0);
+  if(tot < Number(x.despachado||0) - 1e-9){ $('avErr').textContent = 'No se puede quitar: parte de esa producción ya salió en un remito.'; return; }
+  x.tandas.splice(k,1); pintarAvance();
+}
+async function guardarAvance(id){
+  const o = ordenes.find(x=>x.id===id);
+  const items = edAvance.items.map(x=>({ ...x, producido: x.tandas.reduce((s,t)=>s+Number(t.cantidad||0),0) }));
   const lista = $('avLista').checked;
   const estado = lista ? 'lista' : (o.estado==='aceptada' ? 'produccion' : o.estado);
   try{ await db.collection('ordenes').doc(id).update({ items, estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(),
-      historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:'Producido: '+items.map(x=>`${cant(x.producido)}/${cant(x.cantidad)} ${x.nombre}`).join(', ') }) });
-    cerrarModal(); toast('Avance guardado.'); }
-  catch(err){ toast(motivoError(err),'err'); }
+      historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:'Producido: '+items.map(x=>`${cant(x.producido)}/${cant(x.cantidad)} ${x.nombre}${x.tandas.length?` (lotes ${x.tandas.map(t=>t.lote||'s/l').join(', ')})`:''}`).join(', ') }) });
+    cerrarModal(); toast('Producción guardada.'); }
+  catch(err){ $('avErr').textContent = motivoError(err); }
 }
+// Qué lotes salen en un remito: se toman en orden de elaboración, salteando lo ya despachado
+function lotesParaDespacho(x, cantidad){
+  const tandas = tandasDe(x).slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+  let saltar = Number(x.despachado||0), falta = cantidad; const out = [];
+  for(const t of tandas){
+    let disp = Number(t.cantidad||0);
+    const s = Math.min(saltar, disp); saltar -= s; disp -= s;
+    if(disp<=0 || falta<=0) continue;
+    const toma = Math.min(disp, falta); falta -= toma;
+    out.push({ lote:t.lote||'', fecha:t.fecha||'', cantidad:toma });
+  }
+  return out;
+}
+function textoLotes(l){ return (l||[]).map(t=>`${t.lote||'s/l'}${t.fecha?` (${fechaCorta(t.fecha)})`:''}: ${cant(t.cantidad)}`).join(' · '); }
 
 /* ---------- DESPACHOS (fábrica) ---------- */
 let edDesp = null;
@@ -421,7 +507,7 @@ function abrirDespacho(ordenId){
     <p class="text-sm text-slate-600">Cargá lo que <b>efectivamente se subió al camión</b>. Lo que no se cargue queda pendiente en expedición.</p>
     <div class="space-y-2">${filas.map((r,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3">
       <input type="checkbox" id="dk${k}" ${!ordenId||r.o.id===ordenId?'checked':''} class="w-5 h-5">
-      <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(r.x.nombre)}</div><div class="text-xs text-slate-500">Orden N° ${r.o.numero} · disponible ${cant(r.disp)} ${esc(r.x.unidad)}</div></div>
+      <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate">${esc(r.x.nombre)}</div><div class="text-xs text-slate-500">Pedido N° ${r.o.numero} · ${esc(r.x.para || textoDestino(r.o))} · disponible ${cant(r.disp)} ${esc(r.x.unidad)}</div></div>
       <input id="dc${k}" class="field num !w-24 text-right" inputmode="decimal" value="${r.disp}"><span class="text-xs text-slate-500 w-14">${esc(r.x.unidad)}</span></div>`).join('')}</div>
     <div id="dErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
     <button id="dBtn" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 rounded-xl">Confirmar salida y generar remito</button></form>`, 'sm:max-w-2xl');
@@ -434,7 +520,7 @@ async function guardarDespacho(e){
     const r = edDesp[k], v = Number(String($('dc'+k).value).replace(',','.'));
     if(!(v>0)) continue;
     if(v > r.disp + 1e-9){ $('dErr').textContent = `"${r.x.nombre}" (orden ${r.o.numero}): no podés despachar más de lo producido (${cant(r.disp)}).`; return; }
-    items.push({ ordenId:r.o.id, ordenNumero:r.o.numero, idx:r.i, prodId:r.x.prodId, nombre:r.x.nombre, unidad:r.x.unidad, cantidad:v, recibido:null });
+    items.push({ ordenId:r.o.id, ordenNumero:r.o.numero, idx:r.i, prodId:r.x.prodId, nombre:r.x.nombre, unidad:r.x.unidad, cantidad:v, recibido:null, lotes: lotesParaDespacho(r.x, v) });
   }
   if(!items.length){ $('dErr').textContent='Elegí al menos un producto con cantidad.'; return; }
   const btn=$('dBtn'); btn.disabled=true; btn.textContent='Guardando…';
@@ -467,7 +553,7 @@ function tarjetaDespacho(d, accion){
     <div class="flex items-start justify-between gap-2"><div><div class="font-display font-extrabold text-lg">Remito N° ${numRemito(d.numero)}</div><div class="text-xs text-slate-500">${esc(d.camion||'Sin camión indicado')} · salió ${cuando(d.creado)}</div></div>
       <span class="text-xs font-bold px-2.5 py-1 rounded-full ${est[1]}">${est[0]}</span></div>
     <div class="mt-3 divide-y divide-slate-100 text-sm">${d.items.map(it=>{ const dif = it.recibido!=null && Number(it.recibido) !== Number(it.cantidad);
-      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0 truncate">${esc(it.nombre)} <span class="text-xs text-slate-400">· orden ${it.ordenNumero}</span></span>
+      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0">${esc(it.nombre)} <span class="text-xs text-slate-400">· pedido ${it.ordenNumero} · ${esc(paraDeItem(it))}</span>${it.lotes&&it.lotes.length?`<span class="block text-[11px] text-slate-500">Lotes: ${esc(textoLotes(it.lotes))}</span>`:''}</span>
         <span class="num whitespace-nowrap">${cant(it.cantidad)} ${esc(it.unidad)}${it.recibido!=null?` → <b class="${dif?'text-rose-600':'text-emerald-700'}">${cant(it.recibido)}</b>`:''}</span></div>`; }).join('')}</div>
     ${d.notaRecepcion?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2">${esc(d.notaRecepcion)}</div>`:''}
     ${d.resolucion?`<div class="text-xs text-slate-700 bg-emerald-50 rounded-lg p-2 mt-2"><b>Revisado:</b> ${esc(d.resolucion)} <span class="text-slate-400">· ${esc(d.revisadoPor||'')}</span></div>`:''}
@@ -476,15 +562,19 @@ function tarjetaDespacho(d, accion){
     ${d.recibidoPor?`<div class="text-xs text-slate-400 mt-2">Recibió ${esc(d.recibidoPor)} · ${cuando(d.recibidoEn)}</div>`:''}
     ${accion||''}</div>`;
 }
+let filtroRem = '';
 function vDespachos(){
   const pend = disponibles();
-  const lista = despachos.slice().sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const q = filtroRem.trim().toLowerCase();
+  const lista = despachos.filter(d=>!q || [numRemito(d.numero), d.camion||'', ...(d.items||[]).map(it=>it.nombre+' '+paraDeItem(it)+' '+(it.lotes||[]).map(t=>t.lote).join(' '))].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const pag = paginar('remitos', lista, 20, filtroRem);
   return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
       <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Remitos</h1>
         <p class="text-slate-500 mt-1">${esFabrica() ? (pend.length?`Esperando en expedición: ${pend.map(r=>`${cant(r.disp)} ${esc(r.x.unidad)} ${esc(r.x.nombre)}`).slice(0,3).join(', ')}${pend.length>3?'…':''}`:'No hay producción esperando en expedición.') : 'Cada salida de fábrica, con su número de remito.'}</p></div>
       ${esFabrica()?`<button onclick="abrirDespacho()" class="bg-sky-600 hover:bg-sky-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${pend.length?'':'disabled'}><i data-lucide="truck" class="w-4 h-4"></i>Nueva salida</button>`:''}
     </div>
-    <div class="grid md:grid-cols-2 gap-4">${lista.map(d=>tarjetaDespacho(d)).join('') || '<div class="text-sm text-slate-400">Todavía no hay remitos.</div>'}</div>`;
+    <input id="qRem" type="text" class="field mb-5" placeholder="Buscar por número de remito, producto, cliente o lote (trazabilidad)" value="${esc(filtroRem)}" oninput="filtroRem=this.value; render(); const el=$('qRem'); el.focus(); el.setSelectionRange(el.value.length, el.value.length)">
+    <div class="grid md:grid-cols-2 gap-4">${pag.items.map(d=>tarjetaDespacho(d)).join('') || '<div class="text-sm text-slate-400">No hay remitos con ese filtro.</div>'}</div>${pag.html}`;
 }
 
 /* ---------- RECEPCIÓN en la distribuidora (oficina) ---------- */
@@ -545,6 +635,7 @@ async function guardarRecepcion(e, id){
 }
 
 /* ---------- PRODUCTOS DE FÁBRICA (oficina) ---------- */
+let pagProd = { items:[], html:'' };
 function vProductos(){
   return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
       <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Productos de fábrica</h1>
@@ -552,10 +643,10 @@ function vProductos(){
       <div class="flex gap-2"><button onclick="abrirImportarCatalogo()" class="border border-slate-300 bg-white font-semibold px-4 py-2.5 rounded-xl">Traer del catálogo</button>
         <button onclick="abrirProductoF(null)" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Producto</button></div>
     </div>
-    <div class="bg-white rounded-2xl divide-y divide-slate-100">${productosF.map(p=>`<div class="px-4 py-3 flex items-center gap-3 ${p.activo===false?'opacity-50':''}">
+    <div class="bg-white rounded-2xl divide-y divide-slate-100">${(pagProd=paginar('prodF', productosF, 30)).items.map(p=>`<div class="px-4 py-3 flex items-center gap-3 ${p.activo===false?'opacity-50':''}">
       <div class="flex-1 min-w-0"><div class="font-semibold">${esc(p.nombre)}</div><div class="text-xs text-slate-500">${p.codigo?`Cód. ${esc(p.codigo)} · del catálogo`:'Propio de fábrica'} · se pide en ${esc(p.unidad)}</div></div>
       <button onclick="abrirProductoF('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title="Editar"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-      <button onclick="borrarProductoF('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="Borrar"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('') || '<div class="p-8 text-center text-slate-400 text-sm">Todavía no hay productos.</div>'}</div>`;
+      <button onclick="borrarProductoF('${p.id}')" class="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="Borrar"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('') || '<div class="p-8 text-center text-slate-400 text-sm">Todavía no hay productos.</div>'}</div>${pagProd.html}`;
 }
 function abrirProductoF(id){
   const p = id ? productosF.find(x=>x.id===id) : null;
@@ -607,12 +698,12 @@ function imprimirRemito(id){
   const d = despachos.find(x=>x.id===id); if(!d) return;
   const f = aFecha(d.creado) || new Date();
   const filas = d.items.map(it=>{ const pf = productosF.find(p=>p.id===it.prodId);
-    return `<tr><td>${esc(pf&&pf.codigo||'')}</td><td>${esc(it.nombre)}</td><td class="c">${esc(it.ordenNumero)}</td><td class="n">${cant(it.cantidad)}</td><td>${esc(it.unidad)}</td><td class="vacia"></td></tr>`; }).join('');
+    return `<tr><td>${esc(pf&&pf.codigo||'')}</td><td>${esc(it.nombre)}</td><td>${esc((it.lotes||[]).map(t=>t.lote+(t.fecha?' '+deKey(t.fecha).toLocaleDateString('es-UY'):'')).join(', '))}</td><td>${esc(paraDeItem(it))}</td><td class="c">${esc(it.ordenNumero)}</td><td class="n">${cant(it.cantidad)}</td><td>${esc(it.unidad)}</td><td class="vacia"></td></tr>`; }).join('');
   const copia = titulo => `<section>
     <header><div><div class="marca">trondial</div><div class="sub">Fábrica → Depósito de la distribuidora</div></div>
       <div class="num"><div class="doc">REMITO DE SALIDA</div><div class="n0">N° ${numRemito(d.numero)}</div><div class="copia">${titulo}</div></div></header>
     <div class="datos"><div><b>Fecha:</b> ${f.toLocaleDateString('es-UY')} ${f.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false})}</div><div><b>Camión / chofer:</b> ${esc(d.camion||'—')}</div><div><b>Preparó:</b> ${esc(d.creadoPor||'')}</div></div>
-    <table><thead><tr><th>Código</th><th>Producto</th><th class="c">Pedido N°</th><th class="n">Cantidad</th><th>Unidad</th><th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
+    <table><thead><tr><th>Código</th><th>Producto</th><th>Lote y elab.</th><th>Para</th><th class="c">Pedido N°</th><th class="n">Cantidad</th><th>Unidad</th><th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
     <div class="obs"><b>Observaciones:</b></div>
     <div class="firmas"><div>Entregó (fábrica)<span>Firma y aclaración</span></div><div>Transportó<span>Firma y aclaración</span></div><div>Recibió (depósito)<span>Firma, aclaración y fecha</span></div></div>
   </section>`;
@@ -642,7 +733,8 @@ function imprimirRemito(id){
 function imprimirPedido(id){
   const o = ordenes.find(x=>x.id===id); if(!o) return;
   const f = aFecha(o.creado);
-  const filas = (o.items||[]).map(x=>`<tr><td>${esc(x.codigo||'')}</td><td>${esc(x.nombre)}</td><td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td class="v"></td><td class="v"></td><td class="v"></td></tr>`).join('');
+  const conPara = (o.items||[]).some(x=>x.para);
+  const filas = (o.items||[]).map(x=>`<tr><td>${esc(x.codigo||'')}</td><td>${esc(x.nombre)}</td>${conPara?`<td>${esc(x.para||nombreDestino(o))}</td>`:''}<td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td class="v"></td><td class="v"></td><td class="v"></td></tr>`).join('');
   const w = window.open('', '_blank');
   if(!w){ toast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Pedido ${o.numero}</title><style>
@@ -650,6 +742,7 @@ function imprimirPedido(id){
     header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px}
     .marca{font-size:22px;font-weight:800} .doc{text-align:right;font-weight:700} .n0{font-size:24px;font-weight:800}
     .urg{display:inline-block;background:#111;color:#fff;padding:2px 8px;font-weight:700;margin-top:4px}
+    .para{font-size:16px;margin-top:12px} .pie{border:1px solid #111;border-top:0;padding:8px;font-size:12px}
     .datos{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 18px;margin:12px 0}
     .notas{border:1px solid #111;padding:6px 8px;margin-bottom:10px}
     table{width:100%;border-collapse:collapse} th,td{border:1px solid #111;padding:6px} th{background:#eee;font-size:11px;text-align:left}
@@ -660,9 +753,11 @@ function imprimirPedido(id){
   <div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
   <header><div><div class="marca">trondial</div><div>Oficina de ventas → Fábrica</div></div>
     <div class="doc">PEDIDO A FÁBRICA<div class="n0">N° ${o.numero}</div>${o.prioridad==='urgente'?'<div class="urg">URGENTE</div>':''}</div></header>
-  <div class="datos"><div><b>Fecha del pedido:</b> ${f?f.toLocaleDateString('es-UY'):''}</div><div><b>Para el:</b> ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}</div><div><b>Pidió:</b> ${esc(o.creadoPor||'')}</div></div>
+  <div class="para"><b>Para:</b> ${esc(textoDestino(o))}</div>
+  <div class="datos"><div><b>Fecha del pedido:</b> ${f?f.toLocaleDateString('es-UY'):''}</div><div><b>Necesario para el:</b> ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}</div><div><b>Pidió:</b> ${esc(o.creadoPor||'')}</div></div>
   ${o.notas?`<div class="notas"><b>Notas:</b> ${esc(o.notas)}</div>`:''}
-  <table><thead><tr><th>Código</th><th>Producto</th><th>Cantidad</th><th>Unidad</th><th>Producido</th><th>Lote</th><th>Observaciones</th></tr></thead><tbody>${filas}</tbody></table>
+  <table><thead><tr><th>Código</th><th>Producto</th>${conPara?'<th>Para</th>':''}<th>Cantidad</th><th>Unidad</th><th>Producido</th><th>Lote</th><th>Observaciones</th></tr></thead><tbody>${filas}</tbody></table>
+  ${o.notaPie?`<div class="pie"><b>Notas al pie:</b> ${esc(o.notaPie)}</div>`:''}
   <div class="firmas"><div>Responsable de fábrica</div><div>Fecha de terminado</div></div>
   <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
   w.document.close();
@@ -676,7 +771,7 @@ const EST = {
   dato:   { font:{ sz:11, name:'Arial' } },
   datoB:  { font:{ bold:true, sz:11, name:'Arial' } },
   enc:    { font:{ bold:true, color:{rgb:'FFFFFF'}, name:'Arial' }, fill:{ fgColor:{ rgb:'2F6FE4' } }, border:BORDE, alignment:{ vertical:'center', wrapText:true } },
-  celda:  { font:{ name:'Arial' }, border:BORDE, alignment:{ vertical:'center' } },
+  celda:  { font:{ name:'Arial' }, border:BORDE, alignment:{ vertical:'center', wrapText:true } },
   num:    { font:{ name:'Arial', bold:true }, border:BORDE, alignment:{ horizontal:'right', vertical:'center' }, numFmt:'#,##0.##' },
   vacia:  { font:{ name:'Arial' }, border:BORDE, fill:{ fgColor:{ rgb:'FFF9DB' } } },
 };
@@ -690,21 +785,29 @@ function hoja(filas, anchos, merges){
 const C = (v,s)=>({ v, s });
 function hojaPedido(o){
   const f = aFecha(o.creado);
+  const conPara = (o.items||[]).some(x=>x.para);
+  const encab = conPara ? ['Código','Producto','Para','Cantidad','Unidad','Producido','Lote','Observaciones'] : ['Código','Producto','Cantidad','Unidad','Producido','Lote','Observaciones'];
+  const ultCol = encab.length - 1;
   const filas = [
     [C(`PEDIDO A FÁBRICA N° ${o.numero}`, EST.titulo)],
-    [],
-    [C(`Fecha del pedido: ${f?f.toLocaleDateString('es-UY'):''}`, EST.dato), '', '', C(`Para el: ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}`, EST.datoB)],
+    [C(`Para: ${textoDestino(o)}`, { font:{ bold:true, sz:12, name:'Arial' } })],
+    [C(`Fecha del pedido: ${f?f.toLocaleDateString('es-UY'):''}`, EST.dato), '', '', C(`Necesario para el: ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}`, EST.datoB)],
     [C(`Prioridad: ${o.prioridad==='urgente'?'URGENTE':'Normal'}`, o.prioridad==='urgente'?EST.datoB:EST.dato), '', '', C(`Pidió: ${o.creadoPor||''}`, EST.dato)],
     [C(`Notas: ${o.notas||'—'}`, EST.dato)],
     [],
-    ['Código','Producto','Cantidad','Unidad','Producido','Lote','Observaciones'].map(t=>C(t, EST.enc)),
-    ...(o.items||[]).map(x=>[C(x.codigo||'',EST.celda), C(x.nombre,EST.celda), C(Number(x.cantidad||0),EST.num), C(x.unidad,EST.celda), C('',EST.vacia), C('',EST.vacia), C('',EST.vacia)]),
+    encab.map(t=>C(t, EST.enc)),
+    ...(o.items||[]).map(x=>[C(x.codigo||'',EST.celda), C(x.nombre,EST.celda), ...(conPara?[C(x.para||nombreDestino(o),EST.celda)]:[]), C(Number(x.cantidad||0),EST.num), C(x.unidad,EST.celda), C('',EST.vacia), C('',EST.vacia), C('',EST.vacia)]),
     [],
+    ...(o.notaPie ? [[C(`Notas al pie: ${o.notaPie}`, { font:{ sz:10, name:'Arial' }, alignment:{ wrapText:true, vertical:'top' } })], []] : []),
     [C('Las columnas amarillas se completan en fábrica.', { font:{ italic:true, sz:9, color:{rgb:'666666'}, name:'Arial' } })],
     [], [],
     [C('Responsable de fábrica: ______________________________', EST.dato), '', '', '', C('Fecha: ____ / ____ / ______', EST.dato)],
   ];
-  const ws = hoja(filas, [8,32,9,8,10,8,14], [{ s:{r:0,c:0}, e:{r:0,c:6} }, { s:{r:2,c:0}, e:{r:2,c:2} }, { s:{r:2,c:3}, e:{r:2,c:6} }, { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:6} }, { s:{r:4,c:0}, e:{r:4,c:6} }]);
+  const filaPie = o.notaPie ? 7 + (o.items||[]).length + 1 : -1;
+  const merges = [{ s:{r:0,c:0}, e:{r:0,c:ultCol} }, { s:{r:1,c:0}, e:{r:1,c:ultCol} }, { s:{r:2,c:0}, e:{r:2,c:2} }, { s:{r:2,c:3}, e:{r:2,c:ultCol} }, { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:ultCol} }, { s:{r:4,c:0}, e:{r:4,c:ultCol} }];
+  if(filaPie>0) merges.push({ s:{r:filaPie,c:0}, e:{r:filaPie,c:ultCol} });
+  const ws = hoja(filas, conPara ? [7,25,15,9,7,9,7,10] : [8,32,9,8,10,8,14], merges);
+  if(filaPie>0) ws['!rows'] = Object.assign([], { [filaPie]: { hpt: Math.min(90, 16 + Math.ceil(o.notaPie.length/85)*14) } });
   ws['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
   return ws;
 }
@@ -715,15 +818,18 @@ function exportarPedidos(ids){
   if(lista.length > 1){
     // Resumen: cuánto producir de cada producto sumando todos los pedidos
     const tot = {};
-    lista.forEach(o=>(o.items||[]).forEach(x=>{ const k = x.prodId+'|'+x.unidad; (tot[k] ||= { codigo:x.codigo||'', nombre:x.nombre, unidad:x.unidad, cant:0, pedidos:[] }); tot[k].cant += Number(x.cantidad||0); tot[k].pedidos.push(o.numero); }));
+    lista.forEach(o=>(o.items||[]).forEach(x=>{ const k = x.prodId+'|'+x.unidad; (tot[k] ||= { codigo:x.codigo||'', nombre:x.nombre, unidad:x.unidad, cant:0, pedidos:[], para:new Set() }); tot[k].cant += Number(x.cantidad||0); tot[k].pedidos.push(o.numero); tot[k].para.add(x.para || (destino(o).id==='stock' ? 'Stock propio' : o.destinoNombre)); }));
     const filas = [
       [C('RESUMEN DE PEDIDOS A FÁBRICA', EST.titulo)],
       [C(`Pedidos N° ${lista.map(o=>o.numero).join(', ')} · exportado el ${new Date().toLocaleDateString('es-UY')}`, EST.dato)],
       [],
-      ['Código','Producto','Total a producir','Unidad','Pedidos N°'].map(t=>C(t, EST.enc)),
-      ...Object.values(tot).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(r=>[C(r.codigo,EST.celda), C(r.nombre,EST.celda), C(r.cant,EST.num), C(r.unidad,EST.celda), C(r.pedidos.join(', '),EST.celda)]),
+      ['Código','Producto','Total a producir','Unidad','Pedidos N°','Para'].map(t=>C(t, EST.enc)),
+      ...Object.values(tot).sort((a,b)=>a.nombre.localeCompare(b.nombre,'es')).map(r=>[C(r.codigo,EST.celda), C(r.nombre,EST.celda), C(r.cant,EST.num), C(r.unidad,EST.celda), C(r.pedidos.join(', '),EST.celda), C([...r.para].filter(Boolean).join(', '),EST.celda)]),
+      [],
+      [C('Pedidos incluidos', EST.datoB)],
+      ...lista.map(o=>[C(`N° ${o.numero}`, EST.dato), C(textoDestino(o), EST.dato), '', '', C(o.fechaRequerida?`Necesario el ${deKey(o.fechaRequerida).toLocaleDateString('es-UY')}`:'', EST.dato)]),
     ];
-    const wr = hoja(filas, [9,40,13,8,18], [{ s:{r:0,c:0}, e:{r:0,c:4} }]); wr['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
+    const wr = hoja(filas, [8,30,11,8,10,20], [{ s:{r:0,c:0}, e:{r:0,c:5} }]); wr['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
     XLSX.utils.book_append_sheet(wb, wr, 'Resumen');
   }
   lista.forEach(o=> XLSX.utils.book_append_sheet(wb, hojaPedido(o), `Pedido ${o.numero}`));
@@ -744,7 +850,8 @@ function abrirExportarPedidos(){
 /* ===================== INGRESO A OPUS (oficina) ===================== */
 function vOpus(){
   const pend = despachos.filter(d=>['recibido','diferencias','revisado'].includes(d.estado) && !d.ingresadoOpus).sort((a,b)=>(a.numero||0)-(b.numero||0));
-  const hechos = despachos.filter(d=>d.ingresadoOpus).sort((a,b)=>(b.numero||0)-(a.numero||0)).slice(0,30);
+  const hechosTodos = despachos.filter(d=>d.ingresadoOpus).sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const pagH = paginar('opusHechos', hechosTodos, 20); const hechos = hechosTodos;
   return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
       <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Ingreso a Opus</h1>
         <p class="text-slate-500 mt-1 max-w-2xl">Lo que el depósito ya recibió y falta cargar en Opus. Se carga <b>lo recibido</b>, no lo que decía el remito: si hubo diferencias, ya están descontadas.</p></div>
@@ -752,7 +859,13 @@ function vOpus(){
     </div>
     <div class="grid md:grid-cols-2 gap-4 mb-8">${pend.map(d=>tarjetaDespacho(d, `<div class="grid grid-cols-2 gap-2 mt-4"><button onclick="exportarOpus(['${d.id}'])" class="border border-slate-300 hover:border-brand-400 font-semibold py-2.5 rounded-xl">Excel</button>
       <button onclick="marcarOpus('${d.id}')" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-xl">Ya lo ingresé</button></div>`)).join('') || '<div class="bg-white rounded-2xl p-8 text-slate-500">No hay recepciones pendientes de ingresar a Opus.</div>'}</div>
-    ${hechos.length?`<details><summary class="font-semibold text-sm text-slate-500 cursor-pointer">Ingresados recientemente (${hechos.length})</summary><div class="grid md:grid-cols-2 gap-4 mt-3">${hechos.map(d=>tarjetaDespacho(d)).join('')}</div></details>`:''}`;
+    ${hechos.length?`<details><summary class="font-semibold text-sm text-slate-500 cursor-pointer">Ingresados recientemente (${hechos.length})</summary><div class="grid md:grid-cols-2 gap-4 mt-3">${pagH.items.map(d=>tarjetaDespacho(d)).join('')}</div>${pagH.html}</details>`:''}`;
+}
+// Para quién es un producto de un remito: su propia referencia o la del pedido
+function paraDeItem(it){
+  const o = ordenes.find(x=>x.id===it.ordenId); if(!o) return it.para||'';
+  const x = (o.items||[])[it.idx];
+  return (x && x.para) || (destino(o).id==='stock' ? 'Stock propio' : (o.destinoNombre||''));
 }
 function exportarOpus(ids){
   const lista = ids.map(id=>despachos.find(d=>d.id===id)).filter(Boolean);
@@ -760,14 +873,14 @@ function exportarOpus(ids){
     [C('INGRESO A OPUS: MERCADERÍA RECIBIDA DE FÁBRICA', EST.titulo)],
     [C(`Exportado el ${new Date().toLocaleDateString('es-UY')} · remitos N° ${lista.map(d=>numRemito(d.numero)).join(', ')}`, EST.dato)],
     [],
-    ['Remito N°','Fecha recepción','Pedido N°','Código','Producto','Cantidad recibida','Unidad','Enviado según remito','Diferencia','Cargado en Opus'].map(t=>C(t, EST.enc)),
+    ['Remito N°','Fecha recepción','Pedido N°','Para','Código','Producto','Lotes','Cantidad recibida','Unidad','Enviado según remito','Diferencia','Cargado en Opus'].map(t=>C(t, EST.enc)),
   ];
   lista.forEach(d=>{ const fr = aFecha(d.recibidoEn);
     d.items.forEach(it=>{ const pf = productosF.find(p=>p.id===it.prodId); const dif = Number(it.recibido||0) - Number(it.cantidad||0);
-      filas.push([C(numRemito(d.numero),EST.celda), C(fr?fr.toLocaleDateString('es-UY'):'',EST.celda), C(it.ordenNumero,EST.celda), C(pf&&pf.codigo||'',EST.celda), C(it.nombre,EST.celda),
+      filas.push([C(numRemito(d.numero),EST.celda), C(fr?fr.toLocaleDateString('es-UY'):'',EST.celda), C(it.ordenNumero,EST.celda), C(paraDeItem(it),EST.celda), C(pf&&pf.codigo||'',EST.celda), C(it.nombre,EST.celda), C((it.lotes||[]).map(t=>t.lote).join(', '),EST.celda),
         C(Number(it.recibido||0),EST.num), C(it.unidad,EST.celda), C(Number(it.cantidad||0),EST.celda), C(dif, dif ? { ...EST.num, font:{ name:'Arial', bold:true, color:{ rgb:'C81E1E' } } } : EST.celda), C('',EST.vacia)]); }); });
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, hoja(filas, [11,15,10,12,40,16,10,18,11,15], [{ s:{r:0,c:0}, e:{r:0,c:9} }]), 'Ingreso a Opus');
+  XLSX.utils.book_append_sheet(wb, hoja(filas, [11,15,10,22,12,36,16,16,10,18,11,15], [{ s:{r:0,c:0}, e:{r:0,c:11} }]), 'Ingreso a Opus');
   XLSX.writeFile(wb, lista.length===1 ? `opus_remito_${numRemito(lista[0].numero)}.xlsx` : `opus_pendiente_${hoyKey()}.xlsx`);
 }
 function marcarOpus(id){
@@ -783,6 +896,190 @@ async function guardarOpus(id){
     cerrarModal(); toast('Marcado como ingresado en Opus.'); }
   catch(e){ $('opErr').textContent = motivoError(e); }
 }
+
+
+/* ===================== MANIFIESTOS (depósito ↔ fábrica, texto libre) ===================== */
+// Envíos de mercadería que no son pedidos: a reprocesar, modificar, reetiquetar… y su vuelta reprocesada.
+const SENTIDOS = {
+  'a-fabrica':  { nombre:'Depósito → Fábrica', corto:'A fábrica',  chip:'bg-violet-100 text-violet-800', origen:'Depósito', destino:'Fábrica' },
+  'a-deposito': { nombre:'Fábrica → Depósito', corto:'A depósito', chip:'bg-emerald-100 text-emerald-800', origen:'Fábrica', destino:'Depósito' },
+};
+const MOTIVOS = ['Reprocesar','Modificar o reetiquetar','Reacondicionar o reembalar','Control de calidad','Devolución','Otro'];
+function puedeCrearManifiesto(sentido){ return sentido==='a-fabrica' ? (esDeposito()||esOficina()) : esFabrica(); }
+function puedeRecibirManifiesto(m){ return m.sentido==='a-fabrica' ? esFabrica() : (esDeposito()||esOficina()); }
+function numManif(n){ return String(n||0).padStart(5,'0'); }
+let filtroManif = { q:'', sentido:'' };
+function vManifiestos(){
+  const q = filtroManif.q.trim().toLowerCase();
+  const lista = manifiestos.filter(m=>!filtroManif.sentido || m.sentido===filtroManif.sentido)
+    .filter(m=>!q || [numManif(m.numero), m.motivo, m.accion, m.destino, m.notas, ...(m.items||[]).map(x=>x.descripcion+' '+(x.lote||''))].join(' ').toLowerCase().includes(q))
+    .sort((a,b)=>(b.numero||0)-(a.numero||0));
+  const pend = lista.filter(m=>m.estado==='enviado'), resto = lista.filter(m=>m.estado!=='enviado');
+  const pag = paginar('manif', resto, 20, JSON.stringify(filtroManif));
+  return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Manifiestos</h1>
+        <p class="text-slate-500 mt-1 max-w-2xl">Mercadería que va del depósito a la fábrica para reprocesar, modificar o revisar, y la que vuelve de la fábrica ya reprocesada. Se escribe a mano: no hace falta que esté en el catálogo.</p></div>
+      <div class="flex flex-wrap gap-2">
+        ${puedeCrearManifiesto('a-fabrica')?`<button onclick="abrirManifiesto('a-fabrica')" class="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="arrow-right" class="w-4 h-4"></i>Enviar a fábrica</button>`:''}
+        ${puedeCrearManifiesto('a-deposito')?`<button onclick="abrirManifiesto('a-deposito')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="arrow-left" class="w-4 h-4"></i>Enviar a depósito</button>`:''}
+      </div></div>
+    <div class="flex flex-wrap gap-2 mb-5">
+      <input id="qManif" type="text" class="field flex-1 min-w-[220px]" placeholder="Buscar por número, lote, motivo o lo que se envió" value="${esc(filtroManif.q)}" oninput="filtroManif.q=this.value; render(); const el=$('qManif'); el.focus(); el.setSelectionRange(el.value.length, el.value.length)">
+      <select class="field !w-auto" onchange="filtroManif.sentido=this.value; render()"><option value="">Los dos sentidos</option>${Object.entries(SENTIDOS).map(([k,s])=>`<option value="${k}" ${filtroManif.sentido===k?'selected':''}>${s.nombre}</option>`).join('')}</select>
+    </div>
+    <h2 class="font-semibold mb-3">En viaje (${pend.length})</h2>
+    <div class="grid md:grid-cols-2 gap-4 mb-8">${pend.map(m=>tarjetaManifiesto(m)).join('') || '<div class="text-sm text-slate-400">No hay manifiestos en viaje.</div>'}</div>
+    <h2 class="font-semibold mb-3">Recibidos (${resto.length})</h2>
+    <div class="grid md:grid-cols-2 gap-4">${pag.items.map(m=>tarjetaManifiesto(m)).join('') || '<div class="text-sm text-slate-400">Todavía no hay manifiestos recibidos.</div>'}</div>
+    ${pag.html}`;
+}
+function tarjetaManifiesto(m){
+  const s = SENTIDOS[m.sentido] || SENTIDOS['a-fabrica'];
+  const est = { 'enviado':['En viaje','bg-sky-100 text-sky-800'], 'recibido':['Recibido','bg-emerald-100 text-emerald-800'], 'diferencias':['Recibido con diferencias','bg-rose-100 text-rose-700'] }[m.estado] || ['',''];
+  const ref = m.referencia ? manifiestos.find(x=>x.id===m.referencia) : null;
+  return `<div class="bg-white rounded-2xl p-4 ${m.estado==='diferencias'?'ring-2 ring-rose-200':''}">
+    <div class="flex items-start justify-between gap-2"><div><div class="font-display font-extrabold text-lg">Manifiesto N° ${numManif(m.numero)}</div>
+      <div class="flex flex-wrap items-center gap-1.5 mt-1"><span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${s.chip}">${s.nombre}</span><span class="text-xs text-slate-500">${esc(m.creadoPor||'')} · ${cuando(m.creado)}</span></div></div>
+      <span class="text-xs font-bold px-2.5 py-1 rounded-full ${est[1]}">${est[0]}</span></div>
+    ${m.motivo?`<div class="text-sm mt-3"><b>${esc(m.motivo)}</b>${m.accion?`: ${esc(m.accion)}`:''}</div>`:''}
+    ${m.destino?`<div class="text-xs text-slate-500 mt-0.5">Destino: ${esc(m.destino)}</div>`:''}
+    ${ref?`<div class="text-xs text-slate-500 mt-0.5">Vuelta del manifiesto N° ${numManif(ref.numero)}</div>`:''}
+    <div class="mt-3 divide-y divide-slate-100 text-sm">${(m.items||[]).map(x=>{ const dif = x.recibido!=null && Number(x.recibido)!==Number(x.cantidad);
+      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0">${esc(x.descripcion)}${x.lote||x.fecha?`<span class="block text-[11px] text-slate-500">${x.lote?`Lote ${esc(x.lote)}`:''}${x.lote&&x.fecha?' · ':''}${x.fecha?`elab. ${fechaCorta(x.fecha)}`:''}</span>`:''}</span>
+        <span class="num whitespace-nowrap">${cant(x.cantidad)} ${esc(x.unidad)}${x.recibido!=null?` → <b class="${dif?'text-rose-600':'text-emerald-700'}">${cant(x.recibido)}</b>`:''}</span></div>`; }).join('')}</div>
+    ${m.notas?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2">${esc(m.notas)}</div>`:''}
+    ${m.notaRecepcion?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2"><b>Al recibir:</b> ${esc(m.notaRecepcion)}</div>`:''}
+    ${m.recibidoPor?`<div class="text-xs text-slate-400 mt-2">Recibió ${esc(m.recibidoPor)} · ${cuando(m.recibidoEn)}</div>`:''}
+    <div class="flex flex-wrap gap-2 mt-3">
+      <button onclick="imprimirManifiesto('${m.id}')" class="text-sm font-semibold text-brand-700 inline-flex items-center gap-1.5 hover:underline"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>
+      ${m.estado==='enviado' && puedeRecibirManifiesto(m) ? `<button onclick="recibirManifiesto('${m.id}')" class="ml-auto bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-3 py-1.5 rounded-lg">Recibir</button>` : ''}
+      ${m.sentido==='a-fabrica' && m.estado!=='enviado' && esFabrica() ? `<button onclick="abrirManifiesto('a-deposito','${m.id}')" class="ml-auto border border-emerald-300 text-emerald-700 text-sm font-semibold px-3 py-1.5 rounded-lg">Devolver reprocesado</button>` : ''}
+    </div></div>`;
+}
+let edManif = null;
+function abrirManifiesto(sentido, refId){
+  const s = SENTIDOS[sentido], aDep = sentido==='a-deposito';
+  const ref = refId ? manifiestos.find(x=>x.id===refId) : null;
+  const recibidosAFab = manifiestos.filter(m=>m.sentido==='a-fabrica' && m.estado!=='enviado').sort((a,b)=>(b.numero||0)-(a.numero||0)).slice(0,30);
+  edManif = { sentido, items: ref ? (ref.items||[]).map(x=>({ descripcion:x.descripcion, cantidad:Number(x.recibido!=null?x.recibido:x.cantidad)||0, unidad:x.unidad, lote:'', fecha:hoyKey() })) : [{ descripcion:'', cantidad:'', unidad:'unidades', lote:'', fecha:aDep?hoyKey():'' }] };
+  modal(`Nuevo manifiesto · ${s.nombre}`, `<form onsubmit="guardarManifiesto(event)" class="space-y-4" novalidate>
+    ${aDep ? `<div><label class="lbl" for="mRef">¿Es la vuelta de un manifiesto enviado a fábrica? <span class="font-normal text-slate-400">(opcional)</span></label>
+      <select class="field" id="mRef"><option value="">No, es un envío nuevo</option>${recibidosAFab.map(m=>`<option value="${m.id}" ${ref&&ref.id===m.id?'selected':''}>N° ${numManif(m.numero)} · ${esc(m.motivo||'')} · ${esc((m.items||[]).map(x=>x.descripcion).join(', ').slice(0,60))}</option>`).join('')}</select></div>`
+    : `<div class="grid sm:grid-cols-2 gap-3"><div><label class="lbl" for="mMot">Motivo</label><select class="field" id="mMot">${MOTIVOS.map(x=>`<option>${x}</option>`).join('')}</select></div>
+        <div><label class="lbl" for="mDest">Destino o sector <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="mDest" placeholder="Ej.: sala de empaque"></div></div>
+      <div><label class="lbl" for="mAcc">Qué hay que hacer</label><textarea class="field" id="mAcc" rows="2" placeholder="Ej.: reetiquetar con nueva fecha de vencimiento y volver a encajar de a 12"></textarea></div>`}
+    <div><span class="lbl">${aDep?'Qué se envía (mercadería reprocesada)':'Qué se envía'}</span><div id="mItems" class="space-y-2"></div>
+      <button type="button" onclick="leerItemsManif(); edManif.items.push({ descripcion:'', cantidad:'', unidad:'unidades', lote:'', fecha:${aDep?'hoyKey()':"''"} }); pintarItemsManif()" class="mt-2 text-sm font-semibold text-brand-700">+ Agregar otra línea</button></div>
+    <div><label class="lbl" for="mNotas">Notas <span class="font-normal text-slate-400">(opcional)</span></label><textarea class="field" id="mNotas" rows="2"></textarea></div>
+    <div id="mErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button id="mBtn" class="w-full ${aDep?'bg-emerald-600 hover:bg-emerald-700':'bg-violet-600 hover:bg-violet-700'} text-white font-semibold py-3 rounded-xl">Generar manifiesto</button></form>`, 'sm:max-w-2xl');
+  pintarItemsManif();
+}
+function leerItemsManif(){ edManif.items.forEach((x,i)=>{ const g = k=>$(k+i); if(!g('md')) return;
+  x.descripcion = g('md').value.trim(); x.cantidad = g('mc').value; x.unidad = g('mu').value; if(g('ml')) x.lote = g('ml').value.trim().toUpperCase(); if(g('mf')) x.fecha = g('mf').value; }); }
+function pintarItemsManif(){
+  const aDep = edManif.sentido==='a-deposito';
+  $('mItems').innerHTML = edManif.items.map((x,i)=>`<div class="bg-niebla rounded-xl p-2.5 space-y-2">
+    <div class="flex gap-2"><input id="md${i}" class="field flex-1" placeholder="Descripción de la mercadería" value="${esc(x.descripcion)}">
+      ${edManif.items.length>1?`<button type="button" onclick="leerItemsManif(); edManif.items.splice(${i},1); pintarItemsManif()" class="p-2 text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button>`:''}</div>
+    <div class="grid ${aDep?'grid-cols-4':'grid-cols-3'} gap-2">
+      <input id="mc${i}" class="field num" inputmode="decimal" placeholder="Cantidad" value="${esc(x.cantidad)}">
+      <select id="mu${i}" class="field">${UNIDADES.map(u=>`<option ${u===x.unidad?'selected':''}>${u}</option>`).join('')}</select>
+      <input id="ml${i}" class="field uppercase" placeholder="Lote${aDep?'':' (opcional)'}" value="${esc(x.lote||'')}">
+      ${aDep?`<input id="mf${i}" type="date" class="field" title="Fecha de elaboración" value="${esc(x.fecha||'')}">`:''}
+    </div></div>`).join('');
+  iconos();
+}
+async function guardarManifiesto(e){
+  e.preventDefault(); leerItemsManif();
+  const aDep = edManif.sentido==='a-deposito', err = t=>{ $('mErr').textContent=t; };
+  const items = edManif.items.filter(x=>x.descripcion || x.cantidad).map(x=>({ descripcion:x.descripcion, cantidad:Number(String(x.cantidad).replace(',','.'))||0, unidad:x.unidad, lote:x.lote||'', fecha:x.fecha||'', recibido:null }));
+  if(!items.length) return err('Escribí al menos una línea con lo que se envía.');
+  const malo = items.find(x=>!x.descripcion || !(x.cantidad>0)); if(malo) return err('Cada línea necesita descripción y cantidad.');
+  if(aDep){ const sinLote = items.find(x=>!x.lote); if(sinLote) return err(`Poné el lote de "${sinLote.descripcion}".`); }
+  const datos = { sentido:edManif.sentido, items, notas:$('mNotas').value.trim(), estado:'enviado', creadoPor:yo(), dia:hoyKey() };
+  if(aDep){ datos.referencia = $('mRef').value || null; const r = manifiestos.find(x=>x.id===datos.referencia); datos.motivo = r ? 'Vuelta de reproceso' : 'Envío de fábrica'; datos.accion = ''; }
+  else { datos.motivo = $('mMot').value; datos.accion = $('mAcc').value.trim(); datos.destino = $('mDest').value.trim(); if(!datos.accion) return err('Contá qué hay que hacer con la mercadería.'); }
+  const btn=$('mBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const ref = db.collection('manifiestos').doc();
+    const numero = await db.runTransaction(async tx=>{
+      const cRef = db.collection('contadores').doc('manifiestos'); const c = await tx.get(cRef);
+      const n = (c.exists ? c.data().ultimo : 0) + 1; tx.set(cRef, { ultimo:n });
+      tx.set(ref, Object.assign(datos, { numero:n, creado:FV.serverTimestamp() })); return n;
+    });
+    cerrarModal(); irTab('manifiestos');
+    modal(`Manifiesto N° ${numManif(numero)} generado`, `<p class="text-sm text-slate-600">${aDep?'El depósito':'La fábrica'} ya lo ve en viaje. Imprimilo para que acompañe la mercadería.</p>
+      <button onclick="imprimirManifiesto('${ref.id}')" class="mt-4 w-full bg-brand-600 text-white font-semibold py-3 rounded-xl inline-flex items-center justify-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir manifiesto</button>`);
+  }catch(e2){ console.error(e2); err(motivoError(e2)); btn.disabled=false; btn.textContent='Generar manifiesto'; }
+}
+function recibirManifiesto(id){
+  const m = manifiestos.find(x=>x.id===id);
+  modal(`Recibir manifiesto N° ${numManif(m.numero)}`, `<form onsubmit="guardarRecepcionManif(event,'${id}')" class="space-y-3">
+    <p class="text-sm text-slate-600">Cotejá lo que llegó con el manifiesto. Corregí lo que no coincida.</p>
+    ${m.items.map((x,k)=>`<div class="flex items-center gap-3 bg-niebla rounded-xl p-3"><div class="flex-1 min-w-0"><div class="text-sm font-medium">${esc(x.descripcion)}</div><div class="text-xs text-slate-500">Enviado ${cant(x.cantidad)} ${esc(x.unidad)}${x.lote?` · lote ${esc(x.lote)}`:''}</div></div>
+      <input id="rm${k}" class="field num !w-24 text-right" inputmode="decimal" value="${x.cantidad}"><span class="text-xs text-slate-500 w-14">${esc(x.unidad)}</span></div>`).join('')}
+    <div><label class="lbl" for="rmNota">Comentario <span class="font-normal text-slate-400">(opcional)</span></label><input class="field" id="rmNota"></div>
+    <div id="rmErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <button class="w-full bg-brand-600 text-white font-semibold py-3 rounded-xl">Confirmar recepción</button></form>`, 'sm:max-w-xl');
+}
+async function guardarRecepcionManif(e, id){
+  e.preventDefault();
+  const m = manifiestos.find(x=>x.id===id); const items = JSON.parse(JSON.stringify(m.items));
+  for(let k=0;k<items.length;k++){ const v = Number(String($('rm'+k).value).replace(',','.')); if(isNaN(v)||v<0){ $('rmErr').textContent='Revisá las cantidades.'; return; } items[k].recibido = v; }
+  const dif = items.some(x=>Number(x.recibido)!==Number(x.cantidad));
+  try{ await db.collection('manifiestos').doc(id).update({ items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rmNota').value.trim(), dia:hoyKey() });
+    cerrarModal(); toast(dif?'Recibido con diferencias: quedan registradas.':'Manifiesto recibido.', dif?'info':'ok'); }
+  catch(err){ $('rmErr').textContent=motivoError(err); }
+}
+function imprimirManifiesto(id){
+  const m = manifiestos.find(x=>x.id===id); if(!m) return;
+  const s = SENTIDOS[m.sentido], f = aFecha(m.creado) || new Date(), aDep = m.sentido==='a-deposito';
+  const ref = m.referencia ? manifiestos.find(x=>x.id===m.referencia) : null;
+  const filas = (m.items||[]).map(x=>`<tr><td>${esc(x.descripcion)}</td><td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td>${esc(x.lote||'')}</td>${aDep?`<td>${x.fecha?deKey(x.fecha).toLocaleDateString('es-UY'):''}</td>`:''}<td class="v"></td></tr>`).join('');
+  const copia = titulo => `<section>
+    <header><div><div class="marca">trondial</div><div class="sub">${s.origen} → ${s.destino}</div></div>
+      <div class="num"><div class="doc">MANIFIESTO</div><div class="n0">N° ${numManif(m.numero)}</div><div class="copia">${titulo}</div></div></header>
+    <div class="datos"><div><b>Fecha:</b> ${f.toLocaleDateString('es-UY')} ${f.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false})}</div><div><b>Preparó:</b> ${esc(m.creadoPor||'')}</div>${ref?`<div><b>Vuelta del manifiesto:</b> N° ${numManif(ref.numero)}</div>`:''}</div>
+    ${!aDep?`<div class="motivo"><b>Motivo:</b> ${esc(m.motivo||'')}${m.destino?` &nbsp;·&nbsp; <b>Destino:</b> ${esc(m.destino)}`:''}<br><b>Qué hay que hacer:</b> ${esc(m.accion||'')}</div>`:''}
+    <table><thead><tr><th>Mercadería</th><th class="n">Cantidad</th><th>Unidad</th><th>Lote</th>${aDep?'<th>Elaboración</th>':''}<th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
+    <div class="obs"><b>Notas:</b> ${esc(m.notas||'')}</div>
+    <div class="firmas"><div>Entregó (${s.origen.toLowerCase()})<span>Firma y aclaración</span></div><div>Transportó<span>Firma y aclaración</span></div><div>Recibió (${s.destino.toLowerCase()})<span>Firma, aclaración y fecha</span></div></div>
+  </section>`;
+  const w = window.open('', '_blank');
+  if(!w){ toast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Manifiesto ${numManif(m.numero)}</title><style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:16px;font-size:12px}
+    section{border:1.5px solid #111;padding:14px 16px;margin-bottom:14px;page-break-inside:avoid}
+    header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1.5px solid #111;padding-bottom:8px}
+    .marca{font-size:22px;font-weight:800} .sub{color:#444;margin-top:2px;font-weight:700}
+    .num{text-align:right} .doc{font-weight:700;letter-spacing:.5px} .n0{font-size:22px;font-weight:800} .copia{font-size:10px;color:#444;text-transform:uppercase}
+    .datos{display:flex;gap:24px;flex-wrap:wrap;margin:10px 0} .motivo{border:1px solid #111;padding:6px 8px;margin-bottom:8px;line-height:1.5}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #111;padding:5px 6px;text-align:left} th{background:#eee;font-size:11px}
+    .n{text-align:right} .v{width:80px} .obs{border:1px solid #111;border-top:0;min-height:36px;padding:5px 6px}
+    .firmas{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px} .firmas div{border-top:1px solid #111;padding-top:4px;font-weight:700} .firmas span{display:block;font-weight:400;color:#444;font-size:10px}
+    @media print{ body{padding:0} .no-print{display:none} }
+  </style></head><body><div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
+  ${copia('Original: viaja con la mercadería')}${copia('Copia: queda en '+s.origen.toLowerCase())}
+  <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
+  w.document.close();
+}
+
+/* ===================== PAGINACIÓN ===================== */
+const PAG = {}, PAG_FIRMA = {};
+function paginar(clave, lista, porPagina, firma){
+  if(firma!==undefined && PAG_FIRMA[clave]!==firma){ PAG_FIRMA[clave]=firma; PAG[clave]=1; }
+  const total = lista.length, paginas = Math.max(1, Math.ceil(total/porPagina));
+  const p = Math.min(Math.max(1, PAG[clave]||1), paginas); PAG[clave]=p;
+  const items = lista.slice((p-1)*porPagina, p*porPagina);
+  if(paginas<=1) return { items, html:'' };
+  const desde = (p-1)*porPagina+1, hasta = Math.min(p*porPagina, total);
+  let ini = Math.max(1, p-2), fin = Math.min(paginas, ini+4); ini = Math.max(1, fin-4);
+  const b = (n, t, dis, act) => `<button ${dis?'disabled':''} onclick="irPagina('${clave}',${n})" class="min-w-[36px] h-9 px-2 rounded-lg text-sm font-semibold ${act?'bg-brand-600 text-white':'bg-white text-tinta/70 hover:bg-brand-50'} disabled:opacity-40">${t}</button>`;
+  const nums = []; for(let i=ini;i<=fin;i++) nums.push(b(i, String(i), false, i===p));
+  return { items, html:`<div class="flex flex-wrap items-center justify-between gap-3 mt-5"><span class="text-sm text-slate-500">Mostrando ${desde}–${hasta} de ${total}</span><div class="flex gap-1">${b(p-1,'‹',p<=1)}${nums.join('')}${b(p+1,'›',p>=paginas)}</div></div>` };
+}
+function irPagina(clave, n){ PAG[clave]=n; render(); window.scrollTo({ top:0, behavior:'smooth' }); }
 
 render();
 </script>
