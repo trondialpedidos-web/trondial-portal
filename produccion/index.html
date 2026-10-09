@@ -89,7 +89,8 @@ const DESTINOS = [
   { id:'stock',       nombre:'Stock propio',chip:'bg-slate-100 text-slate-600' },
 ];
 const destino = o => DESTINOS.find(d=>d.id===(o.destinoTipo||'stock')) || DESTINOS[2];
-function textoDestino(o){ const d = destino(o); return d.id==='stock' ? 'Stock propio' : `${o.destinoNombre||'—'} (${d.nombre.toLowerCase()})`; }
+function textoDestino(o){ const d = destino(o); return d.id==='stock' ? 'Stock propio' : (o.destinoNombre||'—'); }
+const DESTINOS_NUEVOS = DESTINOS.filter(d=>d.id!=='tercerizado');   // al crear: cliente o stock propio
 function nombreDestino(o){ return destino(o).id==='stock' ? 'Stock propio' : (o.destinoNombre||''); }
 function chipDestino(o){ const d = destino(o); return `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${d.chip}">${esc(d.id==='stock'?d.nombre:(o.destinoNombre||d.nombre))}</span>`; }
 let filtroPed = { q:'', tipo:'' };
@@ -129,9 +130,12 @@ function modal(titulo, cuerpo, ancho){
 function cerrarModal(){ $('modalRoot').innerHTML=''; }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') cerrarModal(); });
 function datosDoc(d){ return Object.assign({ id:d.id }, d.data({ serverTimestamps:'estimate' })); }
-const esOficina = () => rol==='oficina' || rol==='admin';
-const esFabrica = () => rol==='fabrica' || rol==='admin';
-const esDeposito = () => rol==='deposito' || rol==='admin';
+let verComo = (()=>{ try{ return localStorage.getItem('prodVerComo') || 'todo'; }catch(e){ return 'todo'; } })();
+const rolEf = () => rol==='admin' ? verComo : rol;          // rol con el que se arma la pantalla
+const esOficina = () => ['oficina','todo'].includes(rolEf());
+const esFabrica = () => ['fabrica','todo'].includes(rolEf());
+const esDeposito = () => ['deposito','todo'].includes(rolEf());
+function cambiarVerComo(v){ verComo = v; try{ localStorage.setItem('prodVerComo', v); }catch(e){} tab = v==='deposito' ? 'recepcion' : 'ordenes'; render(); }
 const recibe = () => esDeposito() || esOficina();     // el depósito recibe; la oficina también puede hacerlo
 const yo = () => (perfil && perfil.nombre) || '';
 
@@ -172,8 +176,8 @@ function render(){
   const r=$('root');
   if(sinAcceso){ r.innerHTML = vSinAcceso(); iconos(); return; }
   if(!rol){ r.innerHTML='<div class="py-24 text-center text-slate-400 text-sm">Cargando…</div>'; return; }
-  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos, opus:vOpus, manifiestos:vManifiestos };
-  const permitidas = rol==='deposito' ? ['recepcion','despachos','manifiestos'] : rol==='fabrica' ? ['ordenes','despachos','manifiestos'] : ['ordenes','despachos','recepcion','opus','manifiestos','productos'];
+  const vistas = { ordenes:vOrdenes, recepcion:vRecepcion, despachos:vDespachos, productos:vProductos, opus:vOpus, manifiestos:vManifiestos, ingresos:vIngresos };
+  const permitidas = rolEf()==='deposito' ? ['recepcion','despachos','manifiestos','ingresos'] : rolEf()==='fabrica' ? ['ordenes','despachos','manifiestos'] : ['ordenes','despachos','recepcion','opus','manifiestos','ingresos','productos'];
   if(!permitidas.includes(tab)) tab = permitidas[0];
   r.innerHTML = vTabs() + (vistas[tab]||vOrdenes)();
   iconos();
@@ -197,14 +201,19 @@ function vTabs(){
   const paraOpus = despachos.filter(d=>['recibido','diferencias','revisado'].includes(d.estado) && !d.ingresadoOpus).length;
   const t=(id,txt,icon,badge,color)=>`<button onclick="irTab('${id}')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${tab===id?'bg-brand-600 text-white':'text-tinta/70 hover:bg-white'}"><i data-lucide="${icon}" class="w-4 h-4"></i>${txt}${badge?`<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] flex items-center justify-center ${tab===id?'bg-white text-brand-700':(color||'bg-sky-500 text-white')}">${badge}</span>`:''}</button>`;
   const tabs = [];
-  if(rol!=='deposito') tabs.push(t('ordenes','Pedidos a fábrica','clipboard-list'));
+  const nuevosFab = ordenes.filter(o=>['nueva','cambio'].includes(o.estado)).length;
+  if(rolEf()!=='deposito') tabs.push(rolEf()==='fabrica' ? t('ordenes','Pedidos para producir','factory', nuevosFab, 'bg-rose-500 text-white') : t('ordenes','Pedidos a fábrica','clipboard-list'));
   if(recibe()) tabs.push(t('recepcion','Recepción en depósito','package-check',enCamino));
   tabs.push(t('despachos','Remitos','file-text'));
   if(esOficina()) tabs.push(t('opus','Ingreso a Opus','database',paraOpus,'bg-amber-400 text-amber-950'));
   const mPorRecibir = manifiestos.filter(m=>m.estado==='enviado' && puedeRecibirManifiesto(m)).length;
   tabs.push(t('manifiestos','Manifiestos','arrow-left-right',mPorRecibir,'bg-violet-500 text-white'));
+  if(rolEf()!=='fabrica') tabs.push(t('ingresos','Ingresos por lote','scan-barcode'));
   if(esOficina()) tabs.push(t('productos','Productos de fábrica','boxes'));
-  return `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${tabs.join('')}</nav>`;
+  const selector = rol==='admin' ? `<div class="flex flex-wrap items-center gap-2 mb-4 text-sm"><span class="text-slate-500 font-semibold">Ver como:</span>
+    <div class="inline-flex bg-white rounded-xl p-1">${[['todo','Administrador'],['oficina','Oficina'],['fabrica','Fábrica'],['deposito','Depósito']].map(([k,n])=>`<button onclick="cambiarVerComo('${k}')" class="px-3 py-1.5 rounded-lg font-semibold ${verComo===k?'bg-tinta text-white':'text-slate-600 hover:bg-niebla'}">${n}</button>`).join('')}</div>
+    ${verComo!=='todo'?'<span class="text-xs text-slate-400">Así ve el módulo esa persona. Las acciones se hacen igual con tu usuario.</span>':''}</div>` : '';
+  return selector + `<nav class="flex gap-1 overflow-x-auto mb-6 -mx-1 px-1">${tabs.join('')}</nav>`;
 }
 
 /* ===================== LÓGICA DE CANTIDADES ===================== */
@@ -229,6 +238,28 @@ function textoFecha(o){
 }
 
 /* ---------- ÓRDENES: tablero por etapa ---------- */
+// Próximo paso de la fábrica, como botón en la tarjeta (sin tener que abrir el pedido)
+function accionesTarjeta(o){
+  if(!esFabrica()) return '';
+  const t = totales(o);
+  const b = (txt, fn, cls) => `<button onclick="event.stopPropagation(); ${fn}" class="flex-1 text-sm font-semibold rounded-xl px-3 py-2 ${cls}">${txt}</button>`;
+  let botones = '';
+  if(o.estado==='nueva') botones = b('Aceptar', `aceptarOrden('${o.id}')`, 'bg-brand-600 hover:bg-brand-700 text-white') + b('Pedir cambio', `pedirCambio('${o.id}')`, 'border border-amber-300 text-amber-800');
+  else if(o.estado==='cambio') botones = b('Aceptar igual', `aceptarOrden('${o.id}')`, 'bg-brand-600 hover:bg-brand-700 text-white');
+  else if(o.estado==='aceptada') botones = b('Empezar producción', `cambiarEstado('${o.id}','produccion','Empezó la producción')`, 'bg-brand-600 hover:bg-brand-700 text-white');
+  else if(o.estado==='produccion') botones = b('Cargar producción', `registrarAvance('${o.id}')`, 'bg-brand-600 hover:bg-brand-700 text-white') + (t.producido>t.despachado ? b('Despachar', `abrirDespacho('${o.id}')`, 'bg-sky-600 hover:bg-sky-700 text-white') : '');
+  else if(o.estado==='lista') botones = b('Despachar', `abrirDespacho('${o.id}')`, 'bg-sky-600 hover:bg-sky-700 text-white') + b('Corregir producción', `registrarAvance('${o.id}')`, 'border border-slate-300');
+  return botones ? `<div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">${botones}</div>` : '';
+}
+function guiaFabrica(){
+  const paso = (n, t, d) => `<div class="flex gap-3"><span class="w-8 h-8 rounded-full bg-white text-brand-700 font-display font-extrabold flex items-center justify-center shrink-0">${n}</span><div><div class="font-semibold">${t}</div><div class="text-sm text-white/80">${d}</div></div></div>`;
+  return `<div class="bg-brand-600 text-white rounded-[24px] p-5 mb-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    ${paso(1,'Aceptar','Revisá el pedido y confirmá para cuándo lo tenés. Si no llegás, pedí un cambio.')}
+    ${paso(2,'Producir','Tocá "Empezar producción" cuando arranquen.')}
+    ${paso(3,'Cargar producción','Por cada tanda: cantidad, lote, elaboración y vencimiento.')}
+    ${paso(4,'Despachar','Cargá lo que sube al camión e imprimí el remito.')}
+  </div>`;
+}
 function vOrdenes(){
   const q = filtroPed.q.trim().toLowerCase();
   const pasa = o => (!filtroPed.tipo || (o.destinoTipo||'stock')===filtroPed.tipo)
@@ -241,14 +272,16 @@ function vOrdenes(){
     const t = totales(o), e = etapa(o.estado);
     const av = avance(o,'producido');
     const barra = o.estado==='produccion' || t.producido ? `<div class="mt-3"><div class="h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full bg-brand-500" style="width:${av}%"></div></div><div class="text-[11px] text-slate-500 mt-1">${av}% producido</div></div>` : '';
-    return `<button onclick="abrirOrden('${o.id}')" class="w-full text-left bg-white rounded-2xl p-4 hover:ring-2 hover:ring-brand-300 transition">
+    const acc = accionesTarjeta(o);
+    return `<div role="button" tabindex="0" onclick="abrirOrden('${o.id}')" onkeydown="if(event.key==='Enter') abrirOrden('${o.id}')" class="w-full text-left bg-white rounded-2xl p-4 hover:ring-2 hover:ring-brand-300 transition cursor-pointer">
       <div class="flex items-start justify-between gap-2"><span class="font-display font-extrabold text-lg">N° ${o.numero||'—'}</span>
         ${o.prioridad==='urgente'?'<span class="text-[11px] font-bold bg-rose-500 text-white px-2 py-0.5 rounded-full">Urgente</span>':''}</div>
       <div class="mt-1.5 flex flex-wrap items-center gap-1.5">${chipDestino(o)}<span class="text-xs text-slate-500">${textoFecha(o)}</span></div>
       <div class="text-sm text-slate-700 mt-2 line-clamp-2">${(o.items||[]).slice(0,3).map(x=>`${cant(x.cantidad)} ${esc(x.unidad)} ${esc(x.nombre)}`).join(' · ')}${(o.items||[]).length>3?` y ${o.items.length-3} más`:''}</div>
       ${o.estado==='cambio'?`<div class="text-xs text-amber-800 bg-amber-50 rounded-lg px-2 py-1.5 mt-2">${esc(o.pedidoCambio||'')}</div>`:''}
       ${barra}
-    </button>`;
+      ${acc}
+    </div>`;
   };
   const col = e => { const lista = abiertas.filter(o=>o.estado===e.id).sort((a,b)=>(a.prioridad==='urgente'?-1:0)-(b.prioridad==='urgente'?-1:0) || (a.fechaRequerida||'').localeCompare(b.fechaRequerida||''));
     return `<section class="min-w-[260px] w-[260px] lg:w-auto lg:min-w-0 flex-shrink-0 lg:flex-1">
@@ -256,14 +289,15 @@ function vOrdenes(){
       <div class="space-y-2.5">${lista.map(tarjeta).join('') || '<div class="text-xs text-slate-400 px-1 py-4">—</div>'}</div></section>`; };
   return `
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Pedidos a fábrica</h1>
-        <p class="text-slate-500 mt-1">${abiertas.length} abierta${abiertas.length===1?'':'s'}${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length?` · <span class="text-rose-600 font-semibold">${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length} atrasada(s)</span>`:''}</p></div>
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">${rolEf()==='fabrica'?'Pedidos para producir':'Pedidos a fábrica'}</h1>
+        <p class="text-slate-500 mt-1">${abiertas.length} abierto${abiertas.length===1?'':'s'}${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length?` · <span class="text-rose-600 font-semibold">${abiertas.filter(o=>o.fechaRequerida && diasHasta(o.fechaRequerida)<0).length} atrasada(s)</span>`:''}</p></div>
       <div class="flex flex-wrap gap-2"><button onclick="abrirExportarPedidos()" class="border border-slate-300 bg-white hover:border-brand-400 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Exportar a Excel</button>
       ${esOficina()?`<button onclick="abrirNuevaOrden()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Nuevo pedido</button>`:''}</div>
     </div>
+    ${rolEf()==='fabrica' ? guiaFabrica() : ''}
     <div class="flex flex-wrap gap-2 mb-4">
       <input id="qPed" type="text" class="field flex-1 min-w-[220px]" placeholder="Buscar por cliente, número o producto" value="${esc(filtroPed.q)}" oninput="filtroPed.q=this.value; render(); const el=$('qPed'); el.focus(); el.setSelectionRange(el.value.length, el.value.length)">
-      <select class="field !w-auto" onchange="filtroPed.tipo=this.value; render()"><option value="">Todos los destinos</option>${DESTINOS.map(d=>`<option value="${d.id}" ${filtroPed.tipo===d.id?'selected':''}>${d.nombre}</option>`).join('')}</select>
+      <select class="field !w-auto" onchange="filtroPed.tipo=this.value; render()"><option value="">Todos los destinos</option>${DESTINOS_NUEVOS.map(d=>`<option value="${d.id}" ${filtroPed.tipo===d.id?'selected':''}>${d.nombre}</option>`).join('')}</select>
     </div>
     ${abiertas.length ? `<div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">${columnas.map(col).join('')}</div>`
       : `<div class="bg-white rounded-[28px] p-10 text-center text-slate-500">${esOficina()?'No hay órdenes abiertas. Creá la primera con "Nueva orden".':'No hay órdenes para producir.'}${!productosF.length&&esOficina()?'<div class="mt-2 text-sm">Antes, cargá los productos que hace la fábrica en "Productos de fábrica".</div>':''}</div>`}
@@ -284,8 +318,8 @@ function abrirNuevaOrden(id){
   const tipoIni = o ? (o.destinoTipo||'stock') : 'cliente';
   modal(o?`Editar pedido N° ${o.numero}`:'Nuevo pedido a fábrica', `<form onsubmit="guardarOrden(event)" class="space-y-4" novalidate>
     <div><span class="lbl">¿Para quién es?</span>
-      <div class="grid grid-cols-3 gap-1.5">${DESTINOS.map(d=>`<label class="border rounded-lg px-3 py-2 text-sm font-semibold text-center cursor-pointer has-[:checked]:bg-brand-600 has-[:checked]:text-white has-[:checked]:border-brand-600"><input type="radio" name="oDest" value="${d.id}" class="hidden" ${tipoIni===d.id?'checked':''} onchange="$('oDestNomWrap').classList.toggle('hidden', this.value==='stock')">${d.nombre}</label>`).join('')}</div>
-      <div id="oDestNomWrap" class="mt-2 ${tipoIni==='stock'?'hidden':''}"><input class="field" id="oDestNom" list="oDestLista" value="${esc(o?o.destinoNombre||'':'')}" placeholder="Nombre del cliente o de la empresa tercerizada">
+      <div class="grid grid-cols-2 gap-1.5">${DESTINOS_NUEVOS.map(d=>`<label class="border rounded-lg px-3 py-2 text-sm font-semibold text-center cursor-pointer has-[:checked]:bg-brand-600 has-[:checked]:text-white has-[:checked]:border-brand-600"><input type="radio" name="oDest" value="${d.id}" class="hidden" ${tipoIni===d.id?'checked':''} onchange="$('oDestNomWrap').classList.toggle('hidden', this.value==='stock')">${d.nombre}</label>`).join('')}</div>
+      <div id="oDestNomWrap" class="mt-2 ${tipoIni==='stock'?'hidden':''}"><input class="field" id="oDestNom" list="oDestLista" value="${esc(o?o.destinoNombre||'':'')}" placeholder="Nombre del cliente">
         <datalist id="oDestLista">${nombresPrevios.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
     </div>
     <div class="grid grid-cols-2 gap-3">
@@ -334,7 +368,7 @@ async function guardarOrden(e){
   const err=t=>{ $('oErr').textContent=t; };
   const fecha=$('oFecha').value, prioridad=(document.querySelector('input[name=oPrio]:checked')||{}).value||'normal', notas=$('oNotas').value.trim(), notaPie=$('oPie').value.trim();
   const destinoTipo=(document.querySelector('input[name=oDest]:checked')||{}).value||'stock', destinoNombre = destinoTipo==='stock' ? '' : $('oDestNom').value.trim();
-  if(destinoTipo!=='stock' && !destinoNombre) return err(destinoTipo==='cliente' ? 'Poné el nombre del cliente.' : 'Poné el nombre de la empresa tercerizada.');
+  if(destinoTipo!=='stock' && !destinoNombre) return err('Poné el nombre del cliente.');
   if(!fecha) return err('Poné para cuándo la necesitan.');
   if(!edOrden.items.length) return err('Agregá al menos un producto.');
   const malo = edOrden.items.find(x=>!(x.cantidad>0)); if(malo) return err(`Poné la cantidad de "${malo.nombre}".`);
@@ -362,6 +396,7 @@ async function guardarOrden(e){
 /* ---------- Detalle de una orden y acciones según el rol ---------- */
 function abrirOrden(id){
   const o = ordenes.find(x=>x.id===id); if(!o) return;
+  let cancelarHtml = '';
   const e = etapa(o.estado), t = totales(o);
   const acciones = [];
   if(esFabrica()){
@@ -374,7 +409,7 @@ function abrirOrden(id){
   }
   if(esOficina()){
     if(['nueva','cambio'].includes(o.estado)) acciones.push(`<button onclick="cerrarModal(); abrirNuevaOrden('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl">Editar</button>`);
-    if(!['despachada','recibida','cancelada'].includes(o.estado) && !t.despachado) acciones.push(`<button onclick="cancelarOrden('${id}')" class="text-rose-600 font-semibold px-3 py-2.5">Cancelar orden</button>`);
+    if(!['despachada','recibida','cancelada'].includes(o.estado) && !t.despachado) cancelarHtml = `<button onclick="cancelarOrden('${id}')" class="text-xs font-semibold text-slate-400 hover:text-rose-600 inline-flex items-center gap-1"><i data-lucide="ban" class="w-3.5 h-3.5"></i>Cancelar pedido</button>`;
   }
   acciones.push(`<button onclick="exportarPedidos(['${id}'])" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel</button>`);
   acciones.push(`<button onclick="imprimirPedido('${id}')" class="border border-slate-300 font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2"><i data-lucide="printer" class="w-4 h-4"></i>Imprimir</button>`);
@@ -397,11 +432,12 @@ function abrirOrden(id){
     <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-slate-400 uppercase"><th class="pb-1">Producto</th><th class="pb-1 px-2 text-right">Pedido</th><th class="pb-1 px-2 text-right">Producido</th><th class="pb-1 px-2 text-right">Despachado</th><th class="pb-1 pl-2 text-right">Recibido</th></tr></thead><tbody>${filas}</tbody></table></div>
     ${o.notaPie?`<div class="text-sm border-t border-dashed border-slate-300 mt-4 pt-3"><span class="text-slate-500 font-semibold">Notas al pie:</span> ${esc(o.notaPie)}</div>`:''}
     ${acciones.length?`<div class="flex flex-wrap gap-2 mt-5">${acciones.join('')}</div>`:''}
+    ${cancelarHtml?`<div class="mt-4 text-right">${cancelarHtml}</div>`:''}
     <div class="mt-6"><div class="font-semibold text-sm mb-2">Historial</div><ul class="space-y-2 text-sm">${hist}</ul></div>`, 'sm:max-w-2xl');
 }
 async function cambiarEstado(id, estado, nota, extra){
   try{ await db.collection('ordenes').doc(id).update(Object.assign({ estado, actualizado:FV.serverTimestamp(), actualizadoDia:hoyKey(), historial: FV.arrayUnion({ estado, por:yo(), cuando:new Date().toISOString(), nota:nota||'' }) }, extra||{}));
-    cerrarModal(); toast(`Orden ${etapa(estado).corto.toLowerCase()}.`); }
+    cerrarModal(); toast(`Pedido: ${etapa(estado).corto.toLowerCase()}.`); }
   catch(e){ toast(motivoError(e),'err'); }
 }
 function aceptarOrden(id){
@@ -420,9 +456,25 @@ function pedirCambio(id){
 }
 function cancelarOrden(id){
   const o = ordenes.find(x=>x.id===id);
-  modal(`Cancelar orden N° ${o.numero}`, `<form onsubmit="event.preventDefault(); cambiarEstado('${id}','cancelada', $('xNota').value.trim()||'Cancelada por la oficina')" class="space-y-4">
-    <div><label class="lbl" for="xNota">Motivo</label><input class="field" id="xNota"></div>
-    <button class="w-full bg-rose-600 text-white font-semibold py-2.5 rounded-xl">Cancelar orden</button></form>`);
+  modal(`Cancelar pedido N° ${o.numero}`, `<form onsubmit="event.preventDefault(); confirmarCancelacion('${id}')" class="space-y-4">
+    <p class="text-sm text-slate-600">El pedido deja de estar activo para la fábrica. No se puede deshacer.</p>
+    <div><label class="lbl" for="xNota">Motivo</label><input class="field" id="xNota" placeholder="Ej.: el cliente lo anuló"></div>
+    <div id="xErr" class="text-sm text-rose-600 min-h-[1.25rem]"></div>
+    <div class="grid grid-cols-2 gap-2"><button type="button" onclick="cerrarModal()" class="border border-slate-300 font-semibold py-2.5 rounded-xl">Volver</button>
+      <button id="xBtn" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2.5 rounded-xl">Cancelar pedido</button></div></form>`);
+}
+let cancelArmado = null;
+function confirmarCancelacion(id){
+  const o = ordenes.find(x=>x.id===id);
+  if(!$('xNota').value.trim()){ $('xErr').textContent='Poné el motivo de la cancelación.'; return; }
+  if(cancelArmado !== id){
+    cancelArmado = id; $('xErr').textContent='';
+    const b=$('xBtn'); b.textContent=`Sí, cancelar el N° ${o.numero}`; b.classList.add('ring-4','ring-rose-200');
+    $('xErr').innerHTML = '<span class="text-rose-700 font-semibold">Segunda confirmación: tocá de nuevo para cancelar definitivamente.</span>';
+    return;
+  }
+  cancelArmado = null;
+  cambiarEstado(id,'cancelada', $('xNota').value.trim());
 }
 // Lo producido se carga por tandas, cada una con su cantidad, lote y fecha de elaboración (trazabilidad)
 let edAvance = null;
@@ -442,12 +494,13 @@ function pintarAvance(){
   $('avItems').innerHTML = edAvance.items.map((x,i)=>{ const tot = x.tandas.reduce((s,t)=>s+Number(t.cantidad||0),0);
     return `<div class="bg-niebla rounded-2xl p-3">
       <div class="flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold truncate">${esc(x.nombre)}</div><div class="text-xs text-slate-500">Pedido: ${cant(x.cantidad)} ${esc(x.unidad)} · producido: <b class="${tot>=x.cantidad?'text-emerald-700':''}">${cant(tot)}</b>${Number(x.despachado||0)?` · despachado: ${cant(x.despachado)}`:''}</div></div></div>
-      ${x.tandas.length?`<div class="mt-2 space-y-1">${x.tandas.map((t,k)=>`<div class="flex items-center gap-2 text-sm bg-white rounded-lg px-3 py-1.5"><span class="num font-semibold w-20">${cant(t.cantidad)} ${esc(x.unidad)}</span><span class="flex-1">Lote <b>${esc(t.lote||'sin lote')}</b>${t.fecha?` · elab. ${fechaCorta(t.fecha)}`:''}</span>
+      ${x.tandas.length?`<div class="mt-2 space-y-1">${x.tandas.map((t,k)=>`<div class="flex items-center gap-2 text-sm bg-white rounded-lg px-3 py-1.5"><span class="num font-semibold w-20">${cant(t.cantidad)} ${esc(x.unidad)}</span><span class="flex-1">Lote <b>${esc(t.lote||'sin lote')}</b>${t.fecha?` · elab. ${fechaCorta(t.fecha)}`:''}${t.vencimiento?` · vence <b>${fechaCorta(t.vencimiento)}</b>`:''}</span>
         <button type="button" onclick="quitarTanda(${i},${k})" class="text-slate-400 hover:text-rose-600" title="Quitar"><i data-lucide="x" class="w-4 h-4"></i></button></div>`).join('')}</div>`:''}
-      <div class="grid grid-cols-[1fr_1.2fr_1.2fr_auto] gap-2 mt-2 items-end">
+      <div class="grid grid-cols-2 sm:grid-cols-[1fr_1.2fr_1.2fr_1.2fr_auto] gap-2 mt-2 items-end">
         <div><label class="lbl" for="tc${i}">Cantidad</label><input id="tc${i}" class="field num !py-1.5" inputmode="decimal" placeholder="${Math.max(0, x.cantidad - tot) || ''}"></div>
         <div><label class="lbl" for="tl${i}">Lote</label><input id="tl${i}" class="field !py-1.5 uppercase" placeholder="Ej.: L2610-03"></div>
-        <div><label class="lbl" for="tf${i}">Fecha elab.</label><input id="tf${i}" type="date" class="field !py-1.5" value="${hoyKey()}"></div>
+        <div><label class="lbl" for="tf${i}">Elaboración</label><input id="tf${i}" type="date" class="field !py-1.5" value="${hoyKey()}"></div>
+        <div><label class="lbl" for="tv${i}">Vencimiento</label><input id="tv${i}" type="date" class="field !py-1.5"></div>
         <button type="button" onclick="agregarTanda(${i})" class="bg-white border border-slate-300 hover:border-brand-400 rounded-lg px-3 py-2 text-sm font-semibold">Agregar</button>
       </div></div>`; }).join('');
   iconos();
@@ -457,8 +510,11 @@ function agregarTanda(i){
   if(!(c>0)){ $('avErr').textContent = `Poné la cantidad de la tanda de "${x.nombre}".`; return; }
   const lote = $('tl'+i).value.trim().toUpperCase();
   if(!lote){ $('avErr').textContent = `Poné el lote de la tanda de "${x.nombre}".`; return; }
+  const venc = $('tv'+i).value;
+  if(!venc){ $('avErr').textContent = `Poné la fecha de vencimiento de la tanda de "${x.nombre}".`; return; }
+  if($('tf'+i).value && venc < $('tf'+i).value){ $('avErr').textContent = 'El vencimiento no puede ser anterior a la elaboración.'; return; }
   $('avErr').textContent='';
-  x.tandas.push({ cantidad:c, lote, fecha:$('tf'+i).value||'' });
+  x.tandas.push({ cantidad:c, lote, fecha:$('tf'+i).value||'', vencimiento:venc });
   pintarAvance();
 }
 function quitarTanda(i,k){
@@ -486,11 +542,12 @@ function lotesParaDespacho(x, cantidad){
     const s = Math.min(saltar, disp); saltar -= s; disp -= s;
     if(disp<=0 || falta<=0) continue;
     const toma = Math.min(disp, falta); falta -= toma;
-    out.push({ lote:t.lote||'', fecha:t.fecha||'', cantidad:toma });
+    out.push({ lote:t.lote||'', fecha:t.fecha||'', vencimiento:t.vencimiento||'', cantidad:toma });
   }
   return out;
 }
-function textoLotes(l){ return (l||[]).map(t=>`${t.lote||'s/l'}${t.fecha?` (${fechaCorta(t.fecha)})`:''}: ${cant(t.cantidad)}`).join(' · '); }
+function textoLotes(l){ return (l||[]).map(t=>`${t.lote||'s/l'}${t.vencimiento?` (vence ${fechaCorta(t.vencimiento)})`:''}: ${cant(t.cantidad)}`).join(' · '); }
+const fUY = k => k ? deKey(k).toLocaleDateString('es-UY') : '';
 
 /* ---------- DESPACHOS (fábrica) ---------- */
 let edDesp = null;
@@ -619,7 +676,7 @@ async function guardarRecepcion(e, id){
     await db.runTransaction(async tx=>{
       const porOrden = {}; items.forEach(it=>{ (porOrden[it.ordenId] ||= []).push(it); });
       const docs = {}; for(const oid of Object.keys(porOrden)) docs[oid] = await tx.get(db.collection('ordenes').doc(oid));
-      tx.update(db.collection('despachos').doc(id), { items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rNota').value.trim(), dia:hoyKey() });
+      tx.update(db.collection('despachos').doc(id), { items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rNota').value.trim(), dia:hoyKey(), diaRecepcion:hoyKey() });
       for(const oid of Object.keys(porOrden)){
         if(!docs[oid].exists) continue;
         const od = docs[oid].data(); const its = od.items;
@@ -698,12 +755,12 @@ function imprimirRemito(id){
   const d = despachos.find(x=>x.id===id); if(!d) return;
   const f = aFecha(d.creado) || new Date();
   const filas = d.items.map(it=>{ const pf = productosF.find(p=>p.id===it.prodId);
-    return `<tr><td>${esc(pf&&pf.codigo||'')}</td><td>${esc(it.nombre)}</td><td>${esc((it.lotes||[]).map(t=>t.lote+(t.fecha?' '+deKey(t.fecha).toLocaleDateString('es-UY'):'')).join(', '))}</td><td>${esc(paraDeItem(it))}</td><td class="c">${esc(it.ordenNumero)}</td><td class="n">${cant(it.cantidad)}</td><td>${esc(it.unidad)}</td><td class="vacia"></td></tr>`; }).join('');
+    return `<tr><td>${esc(pf&&pf.codigo||'')}</td><td>${esc(it.nombre)}</td><td>${(it.lotes||[]).map(t=>`${esc(t.lote)}${t.fecha?` · elab. ${fUY(t.fecha)}`:''}${t.vencimiento?` · <b>vto. ${fUY(t.vencimiento)}</b>`:''}`).join('<br>')}</td><td>${esc(paraDeItem(it))}</td><td class="c">${esc(it.ordenNumero)}</td><td class="n">${cant(it.cantidad)}</td><td>${esc(it.unidad)}</td><td class="vacia"></td></tr>`; }).join('');
   const copia = titulo => `<section>
     <header><div><div class="marca">trondial</div><div class="sub">Fábrica → Depósito de la distribuidora</div></div>
       <div class="num"><div class="doc">REMITO DE SALIDA</div><div class="n0">N° ${numRemito(d.numero)}</div><div class="copia">${titulo}</div></div></header>
     <div class="datos"><div><b>Fecha:</b> ${f.toLocaleDateString('es-UY')} ${f.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false})}</div><div><b>Camión / chofer:</b> ${esc(d.camion||'—')}</div><div><b>Preparó:</b> ${esc(d.creadoPor||'')}</div></div>
-    <table><thead><tr><th>Código</th><th>Producto</th><th>Lote y elab.</th><th>Para</th><th class="c">Pedido N°</th><th class="n">Cantidad</th><th>Unidad</th><th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
+    <table><thead><tr><th>Código</th><th>Producto</th><th>Lote, elaboración y vencimiento</th><th>Para</th><th class="c">Pedido N°</th><th class="n">Cantidad</th><th>Unidad</th><th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
     <div class="obs"><b>Observaciones:</b></div>
     <div class="firmas"><div>Entregó (fábrica)<span>Firma y aclaración</span></div><div>Transportó<span>Firma y aclaración</span></div><div>Recibió (depósito)<span>Firma, aclaración y fecha</span></div></div>
   </section>`;
@@ -734,7 +791,7 @@ function imprimirPedido(id){
   const o = ordenes.find(x=>x.id===id); if(!o) return;
   const f = aFecha(o.creado);
   const conPara = (o.items||[]).some(x=>x.para);
-  const filas = (o.items||[]).map(x=>`<tr><td>${esc(x.codigo||'')}</td><td>${esc(x.nombre)}</td>${conPara?`<td>${esc(x.para||nombreDestino(o))}</td>`:''}<td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td class="v"></td><td class="v"></td><td class="v"></td></tr>`).join('');
+  const filas = (o.items||[]).map(x=>`<tr><td>${esc(x.codigo||'')}</td><td>${esc(x.nombre)}</td>${conPara?`<td>${esc(x.para||nombreDestino(o))}</td>`:''}<td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td class="v">${esc((x.tandas||[]).map(t=>t.lote).join(', '))}</td><td class="v">${esc((x.tandas||[]).map(t=>fUY(t.vencimiento)).filter(Boolean).join(', '))}</td><td class="v"></td></tr>`).join('');
   const w = window.open('', '_blank');
   if(!w){ toast('El navegador bloqueó la ventana: permití las ventanas emergentes para imprimir.','err'); return; }
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Pedido ${o.numero}</title><style>
@@ -748,7 +805,7 @@ function imprimirPedido(id){
     table{width:100%;border-collapse:collapse} th,td{border:1px solid #111;padding:6px} th{background:#eee;font-size:11px;text-align:left}
     .n{text-align:right;font-weight:700} .v{width:90px}
     .firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:40px} .firmas div{border-top:1px solid #111;padding-top:4px;font-weight:700}
-    @media print{ body{padding:0} .no-print{display:none} }
+    @page{ size:A4 portrait; margin:12mm } @media print{ body{padding:0} .no-print{display:none} }
   </style></head><body>
   <div class="no-print" style="margin-bottom:12px"><button onclick="window.print()" style="font-size:14px;padding:8px 14px">Imprimir</button></div>
   <header><div><div class="marca">trondial</div><div>Oficina de ventas → Fábrica</div></div>
@@ -756,7 +813,7 @@ function imprimirPedido(id){
   <div class="para"><b>Para:</b> ${esc(textoDestino(o))}</div>
   <div class="datos"><div><b>Fecha del pedido:</b> ${f?f.toLocaleDateString('es-UY'):''}</div><div><b>Necesario para el:</b> ${o.fechaRequerida?deKey(o.fechaRequerida).toLocaleDateString('es-UY'):''}</div><div><b>Pidió:</b> ${esc(o.creadoPor||'')}</div></div>
   ${o.notas?`<div class="notas"><b>Notas:</b> ${esc(o.notas)}</div>`:''}
-  <table><thead><tr><th>Código</th><th>Producto</th>${conPara?'<th>Para</th>':''}<th>Cantidad</th><th>Unidad</th><th>Producido</th><th>Lote</th><th>Observaciones</th></tr></thead><tbody>${filas}</tbody></table>
+  <table><thead><tr><th>Código</th><th>Producto</th>${conPara?'<th>Para</th>':''}<th>Cantidad</th><th>Unidad</th><th>Lote</th><th>Vencimiento</th><th>Observaciones</th></tr></thead><tbody>${filas}</tbody></table>
   ${o.notaPie?`<div class="pie"><b>Notas al pie:</b> ${esc(o.notaPie)}</div>`:''}
   <div class="firmas"><div>Responsable de fábrica</div><div>Fecha de terminado</div></div>
   <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
@@ -786,7 +843,7 @@ const C = (v,s)=>({ v, s });
 function hojaPedido(o){
   const f = aFecha(o.creado);
   const conPara = (o.items||[]).some(x=>x.para);
-  const encab = conPara ? ['Código','Producto','Para','Cantidad','Unidad','Producido','Lote','Observaciones'] : ['Código','Producto','Cantidad','Unidad','Producido','Lote','Observaciones'];
+  const encab = conPara ? ['Código','Producto','Para','Cantidad','Unidad','Lote','Vencimiento','Observaciones'] : ['Código','Producto','Cantidad','Unidad','Lote','Vencimiento','Observaciones'];
   const ultCol = encab.length - 1;
   const filas = [
     [C(`PEDIDO A FÁBRICA N° ${o.numero}`, EST.titulo)],
@@ -796,7 +853,7 @@ function hojaPedido(o){
     [C(`Notas: ${o.notas||'—'}`, EST.dato)],
     [],
     encab.map(t=>C(t, EST.enc)),
-    ...(o.items||[]).map(x=>[C(x.codigo||'',EST.celda), C(x.nombre,EST.celda), ...(conPara?[C(x.para||nombreDestino(o),EST.celda)]:[]), C(Number(x.cantidad||0),EST.num), C(x.unidad,EST.celda), C('',EST.vacia), C('',EST.vacia), C('',EST.vacia)]),
+    ...(o.items||[]).map(x=>[C(x.codigo||'',EST.celda), C(x.nombre,EST.celda), ...(conPara?[C(x.para||nombreDestino(o),EST.celda)]:[]), C(Number(x.cantidad||0),EST.num), C(x.unidad,EST.celda), C((x.tandas||[]).map(t=>t.lote).join(', '),EST.vacia), C((x.tandas||[]).map(t=>fUY(t.vencimiento)).filter(Boolean).join(', '),EST.vacia), C('',EST.vacia)]),
     [],
     ...(o.notaPie ? [[C(`Notas al pie: ${o.notaPie}`, { font:{ sz:10, name:'Arial' }, alignment:{ wrapText:true, vertical:'top' } })], []] : []),
     [C('Las columnas amarillas se completan en fábrica.', { font:{ italic:true, sz:9, color:{rgb:'666666'}, name:'Arial' } })],
@@ -806,7 +863,7 @@ function hojaPedido(o){
   const filaPie = o.notaPie ? 7 + (o.items||[]).length + 1 : -1;
   const merges = [{ s:{r:0,c:0}, e:{r:0,c:ultCol} }, { s:{r:1,c:0}, e:{r:1,c:ultCol} }, { s:{r:2,c:0}, e:{r:2,c:2} }, { s:{r:2,c:3}, e:{r:2,c:ultCol} }, { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:ultCol} }, { s:{r:4,c:0}, e:{r:4,c:ultCol} }];
   if(filaPie>0) merges.push({ s:{r:filaPie,c:0}, e:{r:filaPie,c:ultCol} });
-  const ws = hoja(filas, conPara ? [7,25,15,9,7,9,7,10] : [8,32,9,8,10,8,14], merges);
+  const ws = hoja(filas, conPara ? [7,25,15,9,7,9,10,8] : [8,30,9,8,9,11,14], merges);
   if(filaPie>0) ws['!rows'] = Object.assign([], { [filaPie]: { hpt: Math.min(90, 16 + Math.ceil(o.notaPie.length/85)*14) } });
   ws['!margins'] = { left:0.3, right:0.3, top:0.4, bottom:0.4, header:0.2, footer:0.2 };
   return ws;
@@ -945,7 +1002,7 @@ function tarjetaManifiesto(m){
     ${m.destino?`<div class="text-xs text-slate-500 mt-0.5">Destino: ${esc(m.destino)}</div>`:''}
     ${ref?`<div class="text-xs text-slate-500 mt-0.5">Vuelta del manifiesto N° ${numManif(ref.numero)}</div>`:''}
     <div class="mt-3 divide-y divide-slate-100 text-sm">${(m.items||[]).map(x=>{ const dif = x.recibido!=null && Number(x.recibido)!==Number(x.cantidad);
-      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0">${esc(x.descripcion)}${x.lote||x.fecha?`<span class="block text-[11px] text-slate-500">${x.lote?`Lote ${esc(x.lote)}`:''}${x.lote&&x.fecha?' · ':''}${x.fecha?`elab. ${fechaCorta(x.fecha)}`:''}</span>`:''}</span>
+      return `<div class="py-1.5 flex justify-between gap-3"><span class="min-w-0">${esc(x.descripcion)}${x.lote||x.fecha?`<span class="block text-[11px] text-slate-500">${x.lote?`Lote ${esc(x.lote)}`:''}${x.lote&&x.fecha?' · ':''}${x.fecha?`elab. ${fechaCorta(x.fecha)}`:''}${x.vencimiento?` · vence ${fechaCorta(x.vencimiento)}`:''}</span>`:''}</span>
         <span class="num whitespace-nowrap">${cant(x.cantidad)} ${esc(x.unidad)}${x.recibido!=null?` → <b class="${dif?'text-rose-600':'text-emerald-700'}">${cant(x.recibido)}</b>`:''}</span></div>`; }).join('')}</div>
     ${m.notas?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2">${esc(m.notas)}</div>`:''}
     ${m.notaRecepcion?`<div class="text-xs text-slate-600 bg-niebla rounded-lg p-2 mt-2"><b>Al recibir:</b> ${esc(m.notaRecepcion)}</div>`:''}
@@ -976,27 +1033,29 @@ function abrirManifiesto(sentido, refId){
   pintarItemsManif();
 }
 function leerItemsManif(){ edManif.items.forEach((x,i)=>{ const g = k=>$(k+i); if(!g('md')) return;
-  x.descripcion = g('md').value.trim(); x.cantidad = g('mc').value; x.unidad = g('mu').value; if(g('ml')) x.lote = g('ml').value.trim().toUpperCase(); if(g('mf')) x.fecha = g('mf').value; }); }
+  x.descripcion = g('md').value.trim(); x.cantidad = g('mc').value; x.unidad = g('mu').value; if(g('ml')) x.lote = g('ml').value.trim().toUpperCase(); if(g('mf')) x.fecha = g('mf').value; if(g('mv')) x.vencimiento = g('mv').value; }); }
 function pintarItemsManif(){
   const aDep = edManif.sentido==='a-deposito';
   $('mItems').innerHTML = edManif.items.map((x,i)=>`<div class="bg-niebla rounded-xl p-2.5 space-y-2">
     <div class="flex gap-2"><input id="md${i}" class="field flex-1" placeholder="Descripción de la mercadería" value="${esc(x.descripcion)}">
       ${edManif.items.length>1?`<button type="button" onclick="leerItemsManif(); edManif.items.splice(${i},1); pintarItemsManif()" class="p-2 text-slate-400 hover:text-rose-600"><i data-lucide="x" class="w-4 h-4"></i></button>`:''}</div>
-    <div class="grid ${aDep?'grid-cols-4':'grid-cols-3'} gap-2">
+    <div class="grid ${aDep?'grid-cols-2 sm:grid-cols-5':'grid-cols-3'} gap-2">
       <input id="mc${i}" class="field num" inputmode="decimal" placeholder="Cantidad" value="${esc(x.cantidad)}">
       <select id="mu${i}" class="field">${UNIDADES.map(u=>`<option ${u===x.unidad?'selected':''}>${u}</option>`).join('')}</select>
       <input id="ml${i}" class="field uppercase" placeholder="Lote${aDep?'':' (opcional)'}" value="${esc(x.lote||'')}">
-      ${aDep?`<input id="mf${i}" type="date" class="field" title="Fecha de elaboración" value="${esc(x.fecha||'')}">`:''}
+      ${aDep?`<label class="text-[11px] text-slate-500">Elaboración<input id="mf${i}" type="date" class="field" value="${esc(x.fecha||'')}"></label>
+        <label class="text-[11px] text-slate-500">Vencimiento<input id="mv${i}" type="date" class="field" value="${esc(x.vencimiento||'')}"></label>`:''}
     </div></div>`).join('');
   iconos();
 }
 async function guardarManifiesto(e){
   e.preventDefault(); leerItemsManif();
   const aDep = edManif.sentido==='a-deposito', err = t=>{ $('mErr').textContent=t; };
-  const items = edManif.items.filter(x=>x.descripcion || x.cantidad).map(x=>({ descripcion:x.descripcion, cantidad:Number(String(x.cantidad).replace(',','.'))||0, unidad:x.unidad, lote:x.lote||'', fecha:x.fecha||'', recibido:null }));
+  const items = edManif.items.filter(x=>x.descripcion || x.cantidad).map(x=>({ descripcion:x.descripcion, cantidad:Number(String(x.cantidad).replace(',','.'))||0, unidad:x.unidad, lote:x.lote||'', fecha:x.fecha||'', vencimiento:x.vencimiento||'', recibido:null }));
   if(!items.length) return err('Escribí al menos una línea con lo que se envía.');
   const malo = items.find(x=>!x.descripcion || !(x.cantidad>0)); if(malo) return err('Cada línea necesita descripción y cantidad.');
-  if(aDep){ const sinLote = items.find(x=>!x.lote); if(sinLote) return err(`Poné el lote de "${sinLote.descripcion}".`); }
+  if(aDep){ const sinLote = items.find(x=>!x.lote); if(sinLote) return err(`Poné el lote de "${sinLote.descripcion}".`);
+    const sinV = items.find(x=>!x.vencimiento); if(sinV) return err(`Poné el vencimiento de "${sinV.descripcion}".`); }
   const datos = { sentido:edManif.sentido, items, notas:$('mNotas').value.trim(), estado:'enviado', creadoPor:yo(), dia:hoyKey() };
   if(aDep){ datos.referencia = $('mRef').value || null; const r = manifiestos.find(x=>x.id===datos.referencia); datos.motivo = r ? 'Vuelta de reproceso' : 'Envío de fábrica'; datos.accion = ''; }
   else { datos.motivo = $('mMot').value; datos.accion = $('mAcc').value.trim(); datos.destino = $('mDest').value.trim(); if(!datos.accion) return err('Contá qué hay que hacer con la mercadería.'); }
@@ -1028,7 +1087,7 @@ async function guardarRecepcionManif(e, id){
   const m = manifiestos.find(x=>x.id===id); const items = JSON.parse(JSON.stringify(m.items));
   for(let k=0;k<items.length;k++){ const v = Number(String($('rm'+k).value).replace(',','.')); if(isNaN(v)||v<0){ $('rmErr').textContent='Revisá las cantidades.'; return; } items[k].recibido = v; }
   const dif = items.some(x=>Number(x.recibido)!==Number(x.cantidad));
-  try{ await db.collection('manifiestos').doc(id).update({ items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rmNota').value.trim(), dia:hoyKey() });
+  try{ await db.collection('manifiestos').doc(id).update({ items, estado: dif?'diferencias':'recibido', recibidoPor:yo(), recibidoEn:FV.serverTimestamp(), notaRecepcion:$('rmNota').value.trim(), dia:hoyKey(), diaRecepcion:hoyKey() });
     cerrarModal(); toast(dif?'Recibido con diferencias: quedan registradas.':'Manifiesto recibido.', dif?'info':'ok'); }
   catch(err){ $('rmErr').textContent=motivoError(err); }
 }
@@ -1036,13 +1095,13 @@ function imprimirManifiesto(id){
   const m = manifiestos.find(x=>x.id===id); if(!m) return;
   const s = SENTIDOS[m.sentido], f = aFecha(m.creado) || new Date(), aDep = m.sentido==='a-deposito';
   const ref = m.referencia ? manifiestos.find(x=>x.id===m.referencia) : null;
-  const filas = (m.items||[]).map(x=>`<tr><td>${esc(x.descripcion)}</td><td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td>${esc(x.lote||'')}</td>${aDep?`<td>${x.fecha?deKey(x.fecha).toLocaleDateString('es-UY'):''}</td>`:''}<td class="v"></td></tr>`).join('');
+  const filas = (m.items||[]).map(x=>`<tr><td>${esc(x.descripcion)}</td><td class="n">${cant(x.cantidad)}</td><td>${esc(x.unidad)}</td><td>${esc(x.lote||'')}</td>${aDep?`<td>${fUY(x.fecha)}</td><td>${fUY(x.vencimiento)}</td>`:''}<td class="v"></td></tr>`).join('');
   const copia = titulo => `<section>
     <header><div><div class="marca">trondial</div><div class="sub">${s.origen} → ${s.destino}</div></div>
       <div class="num"><div class="doc">MANIFIESTO</div><div class="n0">N° ${numManif(m.numero)}</div><div class="copia">${titulo}</div></div></header>
     <div class="datos"><div><b>Fecha:</b> ${f.toLocaleDateString('es-UY')} ${f.toLocaleTimeString('es-UY',{hour:'2-digit',minute:'2-digit',hour12:false})}</div><div><b>Preparó:</b> ${esc(m.creadoPor||'')}</div>${ref?`<div><b>Vuelta del manifiesto:</b> N° ${numManif(ref.numero)}</div>`:''}</div>
     ${!aDep?`<div class="motivo"><b>Motivo:</b> ${esc(m.motivo||'')}${m.destino?` &nbsp;·&nbsp; <b>Destino:</b> ${esc(m.destino)}`:''}<br><b>Qué hay que hacer:</b> ${esc(m.accion||'')}</div>`:''}
-    <table><thead><tr><th>Mercadería</th><th class="n">Cantidad</th><th>Unidad</th><th>Lote</th>${aDep?'<th>Elaboración</th>':''}<th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
+    <table><thead><tr><th>Mercadería</th><th class="n">Cantidad</th><th>Unidad</th><th>Lote</th>${aDep?'<th>Elaboración</th><th>Vencimiento</th>':''}<th>Recibido</th></tr></thead><tbody>${filas}</tbody></table>
     <div class="obs"><b>Notas:</b> ${esc(m.notas||'')}</div>
     <div class="firmas"><div>Entregó (${s.origen.toLowerCase()})<span>Firma y aclaración</span></div><div>Transportó<span>Firma y aclaración</span></div><div>Recibió (${s.destino.toLowerCase()})<span>Firma, aclaración y fecha</span></div></div>
   </section>`;
@@ -1063,6 +1122,75 @@ function imprimirManifiesto(id){
   ${copia('Original: viaja con la mercadería')}${copia('Copia: queda en '+s.origen.toLowerCase())}
   <script>setTimeout(()=>window.print(), 300);<\/script></body></html>`);
   w.document.close();
+}
+
+/* ===================== REPORTE: INGRESOS DE FÁBRICA POR LOTE ===================== */
+// Todo lo que entró al depósito desde fábrica en un período, con lote, elaboración y vencimiento
+let rep = { desde: hoyKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), hasta: hoyKey(), q:'', filas:null, cargando:false };
+async function cargarIngresos(){
+  rep.cargando = true; rep.filas = null; render();
+  try{
+    const [d, m] = await Promise.all([
+      db.collection('despachos').where('diaRecepcion','>=',rep.desde).where('diaRecepcion','<=',rep.hasta).get(),
+      db.collection('manifiestos').where('diaRecepcion','>=',rep.desde).where('diaRecepcion','<=',rep.hasta).get(),
+    ]);
+    const filas = [];
+    d.docs.map(datosDoc).forEach(x=> (x.items||[]).forEach(it=>{
+      const pf = productosF.find(p=>p.id===it.prodId);
+      const lotes = (it.lotes && it.lotes.length) ? it.lotes : [{ lote:'', fecha:'', vencimiento:'', cantidad:it.cantidad }];
+      const dif = it.recibido!=null && Number(it.recibido)!==Number(it.cantidad);
+      lotes.forEach(l=> filas.push({ fecha:x.diaRecepcion, doc:`Remito ${numRemito(x.numero)}`, pedido:it.ordenNumero, para:paraDeItem(it), codigo:pf&&pf.codigo||'', producto:it.nombre,
+        lote:l.lote, elab:l.fecha, venc:l.vencimiento, cantidad:Number(l.cantidad||0), unidad:it.unidad, obs: dif?`Del ítem llegaron ${cant(it.recibido)} de ${cant(it.cantidad)}`:'' }));
+    }));
+    m.docs.map(datosDoc).filter(x=>x.sentido==='a-deposito').forEach(x=> (x.items||[]).forEach(it=>{
+      const dif = it.recibido!=null && Number(it.recibido)!==Number(it.cantidad);
+      filas.push({ fecha:x.diaRecepcion, doc:`Manifiesto ${numManif(x.numero)}`, pedido:'', para:'', codigo:'', producto:it.descripcion,
+        lote:it.lote, elab:it.fecha, venc:it.vencimiento, cantidad:Number(it.recibido!=null?it.recibido:it.cantidad), unidad:it.unidad, obs: dif?`Enviado ${cant(it.cantidad)}`:'' });
+    }));
+    rep.filas = filas.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'') || (a.producto||'').localeCompare(b.producto||'','es'));
+  }catch(e){ console.error(e); rep.filas = []; toast(motivoError(e),'err'); }
+  rep.cargando = false; render();
+}
+function filasIngresosFiltradas(){
+  const q = rep.q.trim().toLowerCase();
+  return (rep.filas||[]).filter(f=>!q || [f.producto,f.lote,f.codigo,f.para,f.doc].join(' ').toLowerCase().includes(q));
+}
+function vIngresos(){
+  if(rep.filas===null && !rep.cargando) setTimeout(cargarIngresos, 0);
+  const lista = filasIngresosFiltradas();
+  const pag = paginar('ingresos', lista, 40, JSON.stringify([rep.desde, rep.hasta, rep.q]));
+  const hoy = hoyKey();
+  const vencChip = v => { if(!v) return '—'; const d = diasHasta(v); return `<span class="${d<0?'text-rose-600 font-bold':d<=30?'text-amber-700 font-semibold':''}">${fUY(v)}</span>`; };
+  return `<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div><h1 class="font-display text-4xl font-extrabold tracking-tight">Ingresos por lote</h1>
+        <p class="text-slate-500 mt-1 max-w-2xl">Lo que entró al depósito desde fábrica (remitos y manifiestos) en el período, con lote, elaboración y vencimiento.</p></div>
+      <button onclick="exportarIngresos()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2" ${lista.length?'':'disabled'}><i data-lucide="file-spreadsheet" class="w-4 h-4"></i>Excel</button></div>
+    <div class="flex flex-wrap gap-2 mb-4 items-center">
+      <input type="date" class="field !w-auto" value="${rep.desde}" onchange="rep.desde=this.value; cargarIngresos()"><span class="text-slate-400">al</span>
+      <input type="date" class="field !w-auto" value="${rep.hasta}" onchange="rep.hasta=this.value; cargarIngresos()">
+      <input id="qIng" type="text" class="field flex-1 min-w-[200px]" placeholder="Filtrar por producto, lote o cliente" value="${esc(rep.q)}" oninput="rep.q=this.value; render(); const el=$('qIng'); el.focus(); el.setSelectionRange(el.value.length, el.value.length)">
+    </div>
+    <div class="bg-white rounded-2xl overflow-x-auto">${rep.cargando||rep.filas===null ? '<div class="p-8 text-center text-slate-400 text-sm">Cargando…</div>' : lista.length ? `<table class="w-full text-sm min-w-[900px]"><thead><tr class="text-left text-xs text-slate-500">
+      <th class="py-2 px-3">Ingresó</th><th class="py-2 px-3">Documento</th><th class="py-2 px-3">Producto</th><th class="py-2 px-3">Lote</th><th class="py-2 px-3">Elaboración</th><th class="py-2 px-3">Vencimiento</th><th class="py-2 px-3 text-right">Cantidad</th><th class="py-2 px-3">Para</th></tr></thead><tbody>
+      ${pag.items.map(f=>`<tr class="border-t border-slate-100"><td class="py-2 px-3 whitespace-nowrap">${fUY(f.fecha)}</td><td class="py-2 px-3 whitespace-nowrap">${esc(f.doc)}${f.pedido?`<div class="text-[11px] text-slate-400">Pedido ${f.pedido}</div>`:''}</td>
+        <td class="py-2 px-3">${esc(f.producto)}${f.codigo?`<div class="text-[11px] text-slate-400">Cód. ${esc(f.codigo)}</div>`:''}${f.obs?`<div class="text-[11px] text-rose-600">${esc(f.obs)}</div>`:''}</td>
+        <td class="py-2 px-3 font-semibold">${esc(f.lote||'—')}</td><td class="py-2 px-3 whitespace-nowrap">${fUY(f.elab)||'—'}</td><td class="py-2 px-3 whitespace-nowrap">${vencChip(f.venc)}</td>
+        <td class="py-2 px-3 text-right num whitespace-nowrap">${cant(f.cantidad)} ${esc(f.unidad||'')}</td><td class="py-2 px-3">${esc(f.para||'')}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="p-8 text-center text-slate-400 text-sm">No entró mercadería de fábrica en ese período.</div>'}</div>${pag.html}`;
+}
+function exportarIngresos(){
+  const lista = filasIngresosFiltradas();
+  const filas = [
+    [C('INGRESOS DE FÁBRICA POR LOTE', EST.titulo)],
+    [C(`Del ${fUY(rep.desde)} al ${fUY(rep.hasta)}${rep.q?` · filtro: ${rep.q}`:''}`, EST.dato)],
+    [],
+    ['Fecha ingreso','Documento','Pedido N°','Para','Código','Producto','Lote','Elaboración','Vencimiento','Cantidad','Unidad','Observaciones'].map(t=>C(t, EST.enc)),
+    ...lista.map(f=>[C(fUY(f.fecha),EST.celda), C(f.doc,EST.celda), C(f.pedido||'',EST.celda), C(f.para||'',EST.celda), C(f.codigo||'',EST.celda), C(f.producto,EST.celda),
+      C(f.lote||'',EST.celda), C(fUY(f.elab),EST.celda), C(fUY(f.venc),EST.celda), C(f.cantidad,EST.num), C(f.unidad||'',EST.celda), C(f.obs||'',EST.celda)]),
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, hoja(filas, [12,18,9,20,9,34,14,12,12,10,9,26], [{ s:{r:0,c:0}, e:{r:0,c:11} }]), 'Ingresos por lote');
+  XLSX.writeFile(wb, `ingresos_fabrica_${rep.desde}_al_${rep.hasta}.xlsx`);
 }
 
 /* ===================== PAGINACIÓN ===================== */
